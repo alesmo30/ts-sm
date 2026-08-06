@@ -1,6 +1,6 @@
 # SPEC 02 — Contratos compartidos, persistencia y API de datos
 
-> **Estado:** Aprobado
+> **Estado:** Implementado
 > **Depende de:** SPEC 01
 > **Fecha:** 2026-08-06
 > **Objetivo:** Sustituir el andamiaje vacío por datos reales — contratos Zod compartidos, esquema Postgres con Drizzle, tres módulos REST en Nest y semilla idempotente del prototipo, consumibles desde el front con TanStack Query.
@@ -241,26 +241,26 @@ La lista `<ul>` provisional del paso 8 es andamio deliberado: la reemplaza la ta
 
 ## Criterios de aceptación
 
-- [ ] `docker compose down -v && docker compose up` deja la API respondiendo con datos, sin ningún comando manual intermedio
-- [ ] `docker compose exec db psql -U postgres -d tssm -c "\dt app.*"` lista las seis tablas: `sessions`, `transcripts`, `priority_patients`, `references`, `ingest_jobs`, `kb_state`
-- [ ] `curl localhost:3000/sessions` devuelve exactamente 5 sesiones con los códigos `SES-4821` … `SES-4825`
-- [ ] `curl "localhost:3000/sessions?q=marcela"` devuelve 2 sesiones; `?q=SES-4823` devuelve 1; `?q=zzz` devuelve `[]`
-- [ ] `curl localhost:3000/sessions/<id>` de `SES-4821` devuelve 4 turnos con `seq` 0,1,2,3 y `who` alternando `patient`/`assistant`
-- [ ] `POST /sessions` con `{"patientName":"Prueba","procedure":"Control"}` devuelve 201 y `code: "SES-4826"`
-- [ ] `POST /sessions/:id/turns` dos veces seguidas produce turnos con `seq` 0 y 1, ambos con el `kbVersion` vigente
-- [ ] `POST /sessions` con body vacío devuelve 400 y el cuerpo nombra los campos faltantes
-- [ ] `curl localhost:3000/patients/priority` devuelve 3 registros, el primero Jorge Restrepo con `status: "attn"`
-- [ ] `curl localhost:3000/knowledge/references` devuelve 5 referencias, una por cada tipo del enum
-- [ ] `curl localhost:3000/knowledge/state` devuelve `{"version":1}`
-- [ ] `pnpm seed` corrido dos veces deja 5 sesiones, 3 pacientes prioritarios y 5 referencias
-- [ ] `grep -rn "class-validator\|class-transformer" apps/api/src package.json apps/api/package.json` no devuelve nada
-- [ ] `grep -rn "drizzle" apps/api/src/modules --include="*.service.ts" --include="*.controller.ts"` no devuelve nada
-- [ ] `/medico` pinta los 5 códigos de sesión traídos por `useSessions`, sin datos hardcodeados en el componente
-- [ ] Con la API caída, `/medico` no rompe: el hook expone el estado de error
-- [ ] Una respuesta que no cumpla su esquema Zod hace fallar `apiClient` con un error explícito, no propaga datos inválidos
-- [ ] `pnpm lint`, `pnpm typecheck` y `pnpm test` pasan en las tres workspaces
-- [ ] Los tests incluyen al menos un Jest por cada uno de los tres services y un Vitest sobre `useSessions`
-- [ ] `curl localhost:3000/health` sigue devolviendo `{"status":"ok","db":"connected"}`
+- [x] `docker compose down -v && docker compose up` deja la API respondiendo con datos, sin ningún comando manual intermedio
+- [x] `docker compose exec db psql -U postgres -d tssm -c "\dt app.*"` lista las seis tablas: `sessions`, `transcripts`, `priority_patients`, `references`, `ingest_jobs`, `kb_state`
+- [x] `curl localhost:3000/sessions` devuelve exactamente 5 sesiones con los códigos `SES-4821` … `SES-4825`
+- [x] `curl "localhost:3000/sessions?q=marcela"` devuelve 2 sesiones; `?q=SES-4823` devuelve 1; `?q=zzz` devuelve `[]`
+- [x] `curl localhost:3000/sessions/<id>` de `SES-4821` devuelve 4 turnos con `seq` 0,1,2,3 y `who` alternando `patient`/`assistant`
+- [x] `POST /sessions` con `{"patientName":"Prueba","procedure":"Control"}` devuelve 201 y `code: "SES-4826"`
+- [x] `POST /sessions/:id/turns` dos veces seguidas produce turnos con `seq` 0 y 1, ambos con el `kbVersion` vigente
+- [x] `POST /sessions` con body vacío devuelve 400 y el cuerpo nombra los campos faltantes
+- [x] `curl localhost:3000/patients/priority` devuelve 3 registros, el primero Jorge Restrepo con `status: "attn"`
+- [x] `curl localhost:3000/knowledge/references` devuelve 5 referencias, una por cada tipo del enum
+- [x] `curl localhost:3000/knowledge/state` devuelve `{"version":1}`
+- [x] `pnpm seed` corrido dos veces deja 5 sesiones, 3 pacientes prioritarios y 5 referencias
+- [x] `grep -rn "class-validator\|class-transformer" apps/api/src package.json apps/api/package.json` no devuelve nada
+- [x] `grep -rn "drizzle" apps/api/src/modules --include="*.service.ts" --include="*.controller.ts"` no devuelve nada
+- [x] `/medico` pinta los 5 códigos de sesión traídos por `useSessions`, sin datos hardcodeados en el componente
+- [x] Con la API caída, `/medico` no rompe: el hook expone el estado de error
+- [x] Una respuesta que no cumpla su esquema Zod hace fallar `apiClient` con un error explícito, no propaga datos inválidos
+- [x] `pnpm lint`, `pnpm typecheck` y `pnpm test` pasan en las tres workspaces
+- [x] Los tests incluyen al menos un Jest por cada uno de los tres services y un Vitest sobre `useSessions`
+- [x] `curl localhost:3000/health` sigue devolviendo `{"status":"ok","db":"connected"}`
 
 ---
 
