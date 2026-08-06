@@ -1,0 +1,49 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  review:
+    if: >
+      github.event_name == 'pull_request' ||
+      (github.event.issue.pull_request != null &&
+       contains(github.event.comment.body, '@claude recheck'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude code review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          direct_prompt: |
+            Revisa el diff de este PR contra la rama base y publica una revisión de código
+            (usa `gh pr review --comment` o la API de reviews de GitHub, NO comentarios sueltos)
+            con comentarios en línea (inline, anclados a archivo+línea) ubicados
+            inmediatamente debajo del código que se sugiere analizar.
+
+            Para cada hallazgo relevante de refactor, cambio o eliminación de código,
+            deja un comentario inline que empiece con una etiqueta de severidad:
+            "[ALTA]", "[MEDIA]" o "[BAJA]", seguida de una explicación breve del problema
+            y la sugerencia concreta de qué refactorizar, cambiar o eliminar.
+
+            Reglas:
+            - Solo comenta código modificado o directamente afectado por el diff del PR.
+            - No repitas hallazgos ya comentados en revisiones previas de Claude en este PR.
+            - No apruebes ni soliciten cambios formalmente (deja la revisión como comentario,
+              tipo COMMENT), solo deja los comentarios inline con severidad.
+            - Si no hay hallazgos, deja un único comentario general indicando que no se
+              encontraron issues de severidad relevante.
+          claude_args: |
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*),Bash(gh pr review:*)"
