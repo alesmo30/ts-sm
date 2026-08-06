@@ -160,3 +160,17 @@ AudioWorklet (PCM 16kHz) → WS → Deepgram streaming → transcripción parcia
 ## Nota de cierre del día
 
 Antes de dormir, dejar escrito en un archivo `NOTAS-D1.md`: qué quedó a medias, qué fricción apareció y qué hay que hacer primero mañana. El viernes arranca con lectura de la ficha técnica y no hay tiempo para recordar.
+
+---
+
+## Fricciones de SPEC 01 (andamiaje)
+
+Ejecutado el mismo día por delante del bloque de arriba — quedó registrado acá porque es el archivo que el spec señala para anotar fricciones.
+
+- **`eslint-plugin-import` roto bajo ESLint 10.** Usa una API interna (`SourceCode.getTokenOrCommentBefore`) que ya no existe; crashea `pnpm lint` en cualquier archivo con imports desordenados, no solo avisa. Cambiado a `eslint-plugin-import-x` (fork mantenido para flat config + ESLint moderno). Si en D2+ se agrega algo que dependa del `eslint-plugin-import` original, revisar antes de instalar.
+- **`rootDir` de TypeScript y el paquete `shared` sin build.** `apps/api/tsconfig.json` sin `rootDir` explícito hace que `tsc` infiera la raíz común (todo el monorepo) porque `health.dto.ts` importa `@ts-sm/shared` fuera de `apps/api/src`. Eso desplaza el `dist/main.js` a `dist/apps/api/src/main.js`, no `dist/main.js`. Ajustado en `nest-cli.json` (`entryFile`) y `package.json` (`start`). Si se agrega un segundo paquete compartido o se cambia la estructura, revisar esto de nuevo — es frágil.
+- **Tailwind v4 en vez de `tailwind.config.ts`.** DESIGN.md y la spec asumen Tailwind clásico con `theme.extend`; se instaló Tailwind v4 (CSS-first, `@theme` en `index.css`). Mismo resultado, sintaxis distinta. Documentarlo para que D1+ no busque un `tailwind.config.ts` que no existe.
+- **Colisión de nombre `--border`.** DESIGN.md usa `--border` para divisores (0.07 alpha) pero shadcn/ui usa convencionalmente la misma variable para bordes de input (0.14 alpha, nuestro `--border-mid`). Resuelto con namespacing bajo `--color-*` en el `@theme` de Tailwind en vez de declarar un `--border` crudo que pisara al del design system.
+- **Topbar de paciente desbordaba a 360px.** Dos pills con texto largo ("Actualizar conocimiento" + "Cambiar a Dr") no entraban en 360px de ancho. DESIGN.md §5 ya prevé la regla (`<640px` → solo ícono con `aria-label`); solo faltaba implementarla. Verificado con un iframe de ancho exacto porque el `resize_window` de la extensión de Chrome no baja de forma confiable de ~600px en este entorno.
+- **Repo y `LICENSE` ya existían al arrancar.** El repo público en GitHub y la autenticación de `gh` ya estaban resueltos antes de empezar — se saltó `gh repo create` del paso 1 y se fue directo a `git remote add` + primer commit.
+- **Timebox de Docker (35 min) no se gastó.** El compose de los tres servicios levantó a la primera con healthchecks; no hizo falta el plan B de `db` en Docker + `api`/`web` locales.
