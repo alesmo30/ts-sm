@@ -1,0 +1,52 @@
+import type { ZodSchema } from 'zod';
+
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+
+export class ApiValidationError extends Error {
+  constructor(
+    path: string,
+    public readonly issues: string[],
+  ) {
+    super(`Respuesta inválida de ${path}: ${issues.join('; ')}`);
+    this.name = 'ApiValidationError';
+  }
+}
+
+async function request<T>(
+  path: string,
+  schema: ZodSchema<T>,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...init?.headers },
+  });
+
+  if (!response.ok) {
+    throw new Error(`${path} respondió ${response.status}`);
+  }
+
+  const body: unknown = await response.json();
+  const result = schema.safeParse(body);
+
+  if (!result.success) {
+    throw new ApiValidationError(
+      path,
+      result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`),
+    );
+  }
+
+  return result.data;
+}
+
+export const apiClient = {
+  get<T>(path: string, schema: ZodSchema<T>): Promise<T> {
+    return request(path, schema);
+  },
+  post<T>(path: string, schema: ZodSchema<T>, body: unknown): Promise<T> {
+    return request(path, schema, { method: 'POST', body: JSON.stringify(body) });
+  },
+  patch<T>(path: string, schema: ZodSchema<T>, body: unknown): Promise<T> {
+    return request(path, schema, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+};

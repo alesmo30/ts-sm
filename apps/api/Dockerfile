@@ -13,7 +13,7 @@ RUN pnpm install --frozen-lockfile
 FROM deps AS build
 COPY packages/shared ./packages/shared
 COPY apps/api ./apps/api
-RUN pnpm --filter @ts-sm/api build
+RUN pnpm --filter @ts-sm/api... build
 
 # RA.3 — descarga de modelos para el LLM local, preparada y comentada.
 # Se activa cuando el driver del LlmPort aterrice (fuera de alcance de este spec).
@@ -29,6 +29,10 @@ COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build /repo/packages/shared ./packages/shared
 COPY --from=build /repo/apps/api/package.json ./apps/api/package.json
+COPY --from=build /repo/apps/api/drizzle.config.ts ./apps/api/drizzle.config.ts
+COPY --from=build /repo/apps/api/src/database ./apps/api/src/database
+COPY apps/api/docker-entrypoint.sh ./apps/api/docker-entrypoint.sh
+RUN chmod +x ./apps/api/docker-entrypoint.sh
 
 EXPOSE 3000
-CMD ["node", "apps/api/dist/apps/api/src/main.js"]
+CMD ["./apps/api/docker-entrypoint.sh"]
