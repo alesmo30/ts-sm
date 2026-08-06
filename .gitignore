@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# build
+dist/
+build/
+.turbo/
+
+# models / data (voz, RAG posteriores)
+models/
+data/uploads/
+.cache/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editor / os
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# testing
+coverage/
+
+# vite
+.vite/
