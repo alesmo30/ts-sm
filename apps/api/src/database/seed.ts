@@ -1,6 +1,6 @@
-import { Pool } from 'pg';
-import { drizzle } from 'drizzle-orm/node-postgres';
 import { eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { Pool } from 'pg';
 
 import { kbState, priorityPatients, references, sessions, transcripts } from './schema';
 
@@ -313,12 +313,12 @@ async function seed(): Promise<void> {
   });
 
   await pool.end();
-  // eslint-disable-next-line no-console
+   
   console.log('Semilla aplicada.');
 }
 
 seed().catch((error) => {
-  // eslint-disable-next-line no-console
+   
   console.error('Falló la semilla:', error);
   process.exit(1);
 });
