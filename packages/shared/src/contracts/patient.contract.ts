@@ -1,4 +1,5 @@
 import { z } from 'zod';
+
 import { SessionStatus } from './session.contract';
 
 export const PriorityPatientSchema = z.object({
