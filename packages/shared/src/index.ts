@@ -1,1 +1,5 @@
 export * from './contracts/health.contract';
+export * from './contracts/summary.contract';
+export * from './contracts/session.contract';
+export * from './contracts/patient.contract';
+export * from './contracts/knowledge.contract';
