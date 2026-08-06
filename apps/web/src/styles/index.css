@@ -1,0 +1,55 @@
+@import 'tailwindcss';
+@import './tokens.css';
+@import './fonts.css';
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-tx-muted: var(--tx-muted);
+  --color-border: var(--border);
+  --color-border-mid: var(--border-mid);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-hover: var(--accent-hover);
+  --color-on-accent: var(--on-accent);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-on-danger: var(--on-danger);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+
+  --radius-ds: var(--radius);
+  --radius-ds-lg: var(--radius-lg);
+
+  /* shadcn/ui retematizado — mapeo obligatorio antes de usar cualquier componente.
+     Namespaced bajo --color-* para no pisar --border (divisor) del design system. */
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--on-accent);
+  --color-muted-foreground: var(--muted);
+  --color-shadcn-border: var(--border-mid);
+  --color-ring: var(--accent);
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+}
