@@ -13,7 +13,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "typecheck": "pnpm -r exec tsc --noEmit",
-    "docker:up": "docker compose up"
+    "docker:up": "docker compose up",
+    "seed": "pnpm --filter api seed"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

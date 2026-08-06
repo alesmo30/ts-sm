@@ -6,7 +6,7 @@ export const references = appSchema.table(
   'references',
   {
     id: uuid('id').defaultRandom().primaryKey(),
-    name: text('name').notNull(),
+    name: text('name').notNull().unique(),
     type: text('type', { enum: ['PDF', 'MD', 'TXT', 'JSON', 'NOTA'] }).notNull(),
     addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
     sizeBytes: integer('size_bytes'),

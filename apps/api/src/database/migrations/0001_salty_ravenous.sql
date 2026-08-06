@@ -1,0 +1,1 @@
+ALTER TABLE "app"."references" ADD CONSTRAINT "references_name_unique" UNIQUE("name");
