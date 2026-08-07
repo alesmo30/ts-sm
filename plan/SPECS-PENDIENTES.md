@@ -2,14 +2,22 @@
 
 > Este archivo existe para sobrevivir un borrado de contexto. Antes de correr `/spec` para cualquiera de los cuatro specs de abajo, léelo entero — trae las decisiones ya tomadas, las referencias exactas a `DESIGN.md`/`REGLAS.md`, y las preguntas que probablemente haga la Fase 2 de `/spec` para que ya tengas la respuesta pensada.
 >
-> **Estado al 2026-08-06 (fin de sesión):** SPEC 01, SPEC 02 y **SPEC 03 implementados**. SPEC 01 y 02 ya están mergeados a `main` (PR #1 y PR #3). **SPEC 03 NO está mergeado todavía** — vive en la rama `spec-03-vistas-medico`, 11 commits, estado del archivo `specs/03-vistas-medico.md` puesto en `Implementado`, los 28 criterios de aceptación verificados uno por uno (navegador + `grep` + tests). **Falta el `git push` y el `gh pr create` contra `main`** — no se hizo en esta sesión porque pushear/abrir PR requiere confirmación explícita del usuario cada vez, y no se pidió. SPEC 04, 05 y 06 siguen sin redactar.
+> **Estado al 2026-08-07 (fin de sesión):** SPEC 01, SPEC 02, SPEC 03 y **SPEC 04 implementados**. SPEC 01 y 02 ya están mergeados a `main` (PR #1 y PR #3). **SPEC 03 y SPEC 04 NO están mergeados todavía** — cada uno vive en su propia rama, con PR pendiente de abrir.
+>
+> - `spec-03-vistas-medico`: 11 commits, `specs/03-vistas-medico.md` en `Implementado`, 28 criterios verificados uno por uno (navegador + `grep` + tests).
+> - `spec-04-capa-agnostica-llm`: 13 commits, `specs/04-capa-agnostica-llm.md` en `Implementado` (43/44 criterios — falta la verificación end-to-end del driver Anthropic contra la API real, no había key de Anthropic disponible en la sesión, solo una de Groq; cubierto por test unitario con el cliente del SDK mockeado). Los tres drivers (`mock`, `openai`, `anthropic`) quedaron construidos; `openai` se probó en vivo contra Groq (`openai/gpt-oss-120b`) con costo y tokens reales en `/llm/metrics`.
+>
+> **Falta el `git push` y el `gh pr create` contra `main` para ambas ramas** — no se hizo porque pushear/abrir PR requiere confirmación explícita del usuario cada vez, y no se pidió en ninguna de las dos sesiones. SPEC 05 y 06 siguen sin redactar.
 >
 > ### Cómo retomar en la próxima sesión
 >
-> 1. Confirmar que la rama `spec-03-vistas-medico` sigue teniendo sus 11 commits (`git log --oneline main..spec-03-vistas-medico`).
-> 2. Si el usuario quiere abrir el PR: `git push -u origin spec-03-vistas-medico` y `gh pr create` contra `main` — **pedir confirmación antes**, es una acción visible/compartida.
-> 3. Una vez el PR de SPEC 03 esté **mergeado** a `main`: `git checkout main && git pull`, y recién ahí arrancar SPEC 04 con `/spec 04-llm-port` (el usuario lo corre, `/spec` tiene `disable-model-invocation` y no se puede invocar por agente).
+> 1. Confirmar que `spec-03-vistas-medico` y `spec-04-capa-agnostica-llm` siguen con sus commits (`git log --oneline main..spec-03-vistas-medico` / `main..spec-04-capa-agnostica-llm`).
+> 2. Si el usuario quiere abrir los PR: `git push -u origin <rama>` y `gh pr create` contra `main` para cada una — **pedir confirmación antes**, es una acción visible/compartida.
+> 3. Una vez SPEC 04 esté **mergeado** a `main` (SPEC 05 depende de él, no de SPEC 03): `git checkout main && git pull`, y recién ahí arrancar SPEC 05 con `/spec 05-voz-paciente` (el usuario lo corre, `/spec` tiene `disable-model-invocation` y no se puede invocar por agente).
 > 4. `packages/shared` tiene build step (`tsc → dist/`) — cualquier cambio a un contrato exige `pnpm --filter shared build` antes de que `api`/`web` lo vean. Ver `CLAUDE.md` para el resto de fricciones ya resueltas (no las repitas).
+> 5. **Cuando haya key de Anthropic real**: correr una vez `POST /llm/complete` con `LLM_PROVIDER=anthropic` para cerrar el único criterio de SPEC 04 que quedó sin verificar contra la API real (el driver ya está escrito y cubierto por test unitario).
+> 6. Si aparece `TS2589: Type instantiation is excessively deep and possibly infinite` al usar `zod-to-json-schema` dentro de un método genérico (`structured<T>(...)` o similar), ver el patrón ya aplicado en `openai.driver.ts`/`anthropic.driver.ts`: extraer una función `toJsonSchema(schema: any): Record<string, unknown>` fuera de la clase con `// eslint-disable-next-line @typescript-eslint/no-explicit-any` en ese único punto — no escalar `any` al resto del archivo.
+> 7. **`apps/api/Dockerfile` y `apps/web/Dockerfile` ya arreglados** (SPEC 04): el stage `deps` copiaba solo `packages/shared/package.json` antes del `pnpm install`, y el `postinstall` (`tsc` sobre `shared`) fallaba por faltar `tsconfig.json`/`src`. Si un futuro cambio a los Dockerfiles reintroduce ese patrón, es el mismo bug.
 >
 > ### Sobre paralelizar specs 04/05/06 con agentes en worktree (decisión de la sesión anterior)
 >
@@ -24,12 +32,12 @@
 
 ```
 SPEC 03 (vistas médico)  ──depende de──▶  SPEC 02 (ya implementado)   [IMPLEMENTADO · PR pendiente]
-SPEC 04 (LLMPort)        ──independiente, se puede hacer en paralelo con 03
-SPEC 05 (voz + paciente) ──depende de──▶  SPEC 04 + SPEC 02
+SPEC 04 (LLMPort)        ──independiente de 03                        [IMPLEMENTADO · PR pendiente]
+SPEC 05 (voz + paciente) ──depende de──▶  SPEC 04 + SPEC 02           [DESBLOQUEADO — falta redactar]
 SPEC 06 (KB en caliente)  ──depende de──▶  SPEC 03 + SPEC 05
 ```
 
-SPEC 04 es el bloque 🔴 más importante del día según el plan original (ventaja competitiva real: cambiar `LLM_PROVIDER` sin tocar código fuera de `modules/llm`) — si el tiempo aprieta, priorizarlo sobre 03.
+SPEC 04 era el bloque 🔴 más importante del día según el plan original (ventaja competitiva real: cambiar `LLM_PROVIDER` sin tocar código fuera de `modules/llm`) — **ya implementado y verificado**, incluida una prueba en vivo contra Groq. SPEC 05 queda como el siguiente bloque a redactar.
 
 ---
 
@@ -84,6 +92,8 @@ Las diez preguntas se resolvieron al redactar el spec. El detalle y la justifica
 ---
 
 ## SPEC 04 — Capa agnóstica de LLM (`LLMPort` + drivers)
+
+> ✅ **Implementado y validado:** `specs/04-capa-agnostica-llm.md`, estado `Implementado` (2026-08-07). Rama `spec-04-capa-agnostica-llm`, 13 commits, PR contra `main` pendiente de abrir. 43/44 criterios de aceptación verificados; el único pendiente es la prueba end-to-end del driver Anthropic contra la API real (no había key disponible, solo la de Groq — cubierto por test unitario). Lo que sigue queda como registro de dónde salió y qué se decidió en Fase 2.
 
 **Cubre del plan original:** T1, marcado 🔴 como "lo más importante del día".
 
