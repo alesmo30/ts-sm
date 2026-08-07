@@ -1,18 +1,15 @@
-import type { ReactNode } from 'react';
 import { useState } from 'react';
 
-import { BottomPanel } from '../../../shared/components/BottomPanel';
 import { Topbar } from '../../../shared/layouts/Topbar';
 import { usePriorityPatients } from '../api/usePriorityPatients';
+import { useStatsCounts } from '../api/useStatsCounts';
 import type { MedicoView, Selection } from '../types';
 
 import { DashboardView } from './DashboardView';
-import { PatientPreview } from './PatientPreview';
 import { PriorityDetail } from './PriorityDetail';
 import { PriorityView } from './PriorityView';
 import { ReferencesView } from './ReferencesView';
 import { SessionDetail } from './SessionDetail';
-import { SessionPreview } from './SessionPreview';
 import { Sidenav } from './Sidenav';
 
 const PANE_HEAD: Record<MedicoView, { title: string; subtitle: string }> = {
@@ -37,6 +34,7 @@ export function MedicoPage() {
   const [openPatientId, setOpenPatientId] = useState<string | null>(null);
 
   const { data: priorityPatients } = usePriorityPatients();
+  const { data: counts } = useStatsCounts();
 
   function handleViewChange(nextView: MedicoView) {
     setView(nextView);
@@ -64,22 +62,9 @@ export function MedicoPage() {
   }
 
   const { title, subtitle } = PANE_HEAD[view];
-  const selectedPatient =
-    selected?.kind === 'patient'
-      ? priorityPatients?.find((patient) => patient.id === selected.id)
-      : undefined;
   const openPatient = openPatientId
     ? priorityPatients?.find((patient) => patient.id === openPatientId)
     : undefined;
-
-  let bottomPanelContent: ReactNode;
-  if (selected?.kind === 'session') {
-    bottomPanelContent = <SessionPreview id={selected.id} />;
-  } else if (selectedPatient) {
-    bottomPanelContent = <PatientPreview patient={selectedPatient} />;
-  } else {
-    bottomPanelContent = undefined;
-  }
 
   return (
     <>
@@ -90,13 +75,13 @@ export function MedicoPage() {
         switchLabel="Cambiar a paciente"
         switchTo="/paciente"
       />
-      <div className="grid grid-cols-1 min-[920px]:grid-cols-[minmax(260px,1fr)_minmax(0,2fr)]">
-        <Sidenav view={view} onViewChange={handleViewChange} />
-        <main className="px-[30px] py-[26px]">
-          <h2 className="font-display text-[21px] font-semibold tracking-[-0.01em] text-fg">
+      <div className="grid h-[calc(100vh-72px)] grid-cols-1 min-[920px]:grid-cols-[minmax(240px,1fr)_minmax(0,3fr)]">
+        <Sidenav view={view} onViewChange={handleViewChange} counts={counts} />
+        <main className="flex min-h-0 flex-col overflow-y-auto px-[30px] py-[26px]">
+          <h2 className="shrink-0 font-display text-[21px] font-semibold tracking-[-0.01em] text-fg">
             {title}
           </h2>
-          <p className="mt-1 text-[13px] text-muted">{subtitle}</p>
+          <p className="mt-1 shrink-0 text-[13px] text-muted">{subtitle}</p>
           {view === 'dashboard' &&
             (openSessionId ? (
               <SessionDetail id={openSessionId} onBack={handleBackToDashboard} />
@@ -118,7 +103,6 @@ export function MedicoPage() {
           {view === 'references' && <ReferencesView />}
         </main>
       </div>
-      <BottomPanel>{bottomPanelContent}</BottomPanel>
     </>
   );
 }

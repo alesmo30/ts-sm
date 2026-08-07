@@ -50,7 +50,7 @@ export function PacientePage() {
           </div>
         </main>
       ) : (
-        <main className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-[720px] flex-col">
+        <main className="mx-auto flex h-[calc(100vh-72px)] w-full max-w-[720px] flex-col overflow-hidden border-x border-border">
           <ChatView turns={turns} streamingText={streamingText} isStreaming={isStreaming} error={error} />
           <Composer onSend={send} />
         </main>

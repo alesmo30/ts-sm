@@ -74,6 +74,15 @@ export class SessionsService {
     return toTurn(created);
   }
 
+  async remove(id: string): Promise<void> {
+    const session = await this.repository.findById(id);
+    if (!session) {
+      throw new NotFoundException(`Sesión ${id} no encontrada`);
+    }
+
+    await this.repository.remove(id);
+  }
+
   async update(id: string, patch: UpdateSessionInput): Promise<Session> {
     const updated = await this.repository.update(id, patch);
     if (!updated) {

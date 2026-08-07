@@ -180,7 +180,7 @@ describe('ConversationService', () => {
     const result = await service.closeSession(SESSION_ID);
 
     expect(sessionsService.update).toHaveBeenCalledWith(SESSION_ID, { status: 'ok', summary: 'Resumen de una línea.' });
-    expect(result.status).toBe('ok');
+    expect(result?.status).toBe('ok');
   });
 
   it('closeSession cierra la sesión con summary null si el LLM falla', async () => {
@@ -216,7 +216,7 @@ describe('ConversationService', () => {
     const result = await service.closeSession(SESSION_ID);
 
     expect(sessionsService.update).toHaveBeenCalledWith(SESSION_ID, { status: 'ok', summary: null });
-    expect(result.status).toBe('ok');
+    expect(result?.status).toBe('ok');
   });
 
   it('closeSession no llama al LLM si no hay turnos del asistente', async () => {
@@ -247,5 +247,34 @@ describe('ConversationService', () => {
 
     expect(completeSpy).not.toHaveBeenCalled();
     expect(sessionsService.update).toHaveBeenCalledWith(SESSION_ID, { status: 'ok', summary: null });
+  });
+
+  it('closeSession borra la sesión y no genera resumen si el paciente nunca escribió', async () => {
+    const sessionsService = {
+      addTurn: jest.fn(),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: [] } as unknown as SessionDetail)),
+      update: jest.fn(),
+      remove: jest.fn(() => Promise.resolve()),
+    };
+
+    const port = new FakePort();
+    const completeSpy = jest.spyOn(port, 'complete');
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: port },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    const result = await service.closeSession(SESSION_ID);
+
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(sessionsService.remove).toHaveBeenCalledWith(SESSION_ID);
+    expect(sessionsService.update).not.toHaveBeenCalled();
+    expect(result).toBeNull();
   });
 });

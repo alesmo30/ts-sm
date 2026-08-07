@@ -1,6 +1,7 @@
 import type { Session } from '@ts-sm/shared';
 
 import { StatusTag } from '../../../shared/components/StatusTag';
+import { formatDate, formatTime } from '../../../shared/lib/format';
 
 interface SessionTableProps {
   sessions: Session[];
@@ -47,10 +48,10 @@ export function SessionTable({ sessions, selectedId, onSelect }: SessionTablePro
                 }
               >
                 <td className="border-b border-border py-3 pr-3 font-mono text-[13.5px] tabular-nums text-fg">
-                  {session.date}
+                  {formatDate(session.createdAt)}
                 </td>
                 <td className="border-b border-border py-3 pr-3 font-mono text-[13.5px] tabular-nums text-fg">
-                  {session.time}
+                  {formatTime(session.createdAt)}
                 </td>
                 <td className="border-b border-border py-3 pr-3 font-mono text-[13.5px] tabular-nums text-fg">
                   {session.code}
@@ -84,7 +85,7 @@ export function SessionTable({ sessions, selectedId, onSelect }: SessionTablePro
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono text-[12px] tabular-nums text-muted">
-                  {session.date} · {session.time}
+                  {formatDate(session.createdAt)} · {formatTime(session.createdAt)}
                 </span>
                 <StatusTag variant={session.status} />
               </div>

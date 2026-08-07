@@ -8,7 +8,7 @@ export class ConversationController {
   constructor(private readonly conversationService: ConversationService) {}
 
   @Post(':id/close')
-  close(@Param('id') id: string): Promise<Session> {
+  close(@Param('id') id: string): Promise<Session | null> {
     return this.conversationService.closeSession(id);
   }
 }

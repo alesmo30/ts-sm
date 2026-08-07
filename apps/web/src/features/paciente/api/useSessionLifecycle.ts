@@ -38,7 +38,7 @@ export function useSessionLifecycle(): UseSessionLifecycleResult {
     if (!sessionId) return null;
     setIsClosing(true);
     try {
-      return await apiClient.post(`/sessions/${sessionId}/close`, SessionSchema, {});
+      return await apiClient.post(`/sessions/${sessionId}/close`, SessionSchema.nullable(), {});
     } finally {
       setIsClosing(false);
     }

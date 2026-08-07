@@ -33,18 +33,12 @@ export function ChatView({ turns, streamingText, isStreaming, error }: ChatViewP
       className="flex-1 space-y-3 overflow-y-auto px-5 py-5"
     >
       {turns.map((turn) => (
-        <Bubble key={turn.id} turn={turn} />
+        <Bubble key={turn.id} who={turn.who} text={turn.text} isVoice={turn.isVoice} at={turn.at} />
       ))}
 
       {isStreaming && streamingText === '' && <TypingIndicator />}
 
-      {isStreaming && streamingText !== '' && (
-        <div className="flex justify-start">
-          <div className="max-w-[76%] rounded-2xl rounded-bl-[4px] border border-border bg-surface-2 px-[15px] py-[11px] text-[14.5px] text-fg">
-            <p className="whitespace-pre-wrap">{streamingText}</p>
-          </div>
-        </div>
-      )}
+      {isStreaming && streamingText !== '' && <Bubble who="assistant" text={streamingText} />}
 
       {error && (
         <p className="text-center text-[12.5px] text-danger" role="alert">
