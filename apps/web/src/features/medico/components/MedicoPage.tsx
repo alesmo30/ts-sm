@@ -1,9 +1,11 @@
 import { useState } from 'react';
 
+import { BottomPanel } from '../../../shared/components/BottomPanel';
 import { Topbar } from '../../../shared/layouts/Topbar';
-import type { MedicoView } from '../types';
+import type { MedicoView, Selection } from '../types';
 
 import { DashboardView } from './DashboardView';
+import { SessionPreview } from './SessionPreview';
 import { Sidenav } from './Sidenav';
 
 const PANE_HEAD: Record<MedicoView, { title: string; subtitle: string }> = {
@@ -23,9 +25,15 @@ const PANE_HEAD: Record<MedicoView, { title: string; subtitle: string }> = {
 
 export function MedicoPage() {
   const [view, setView] = useState<MedicoView>('dashboard');
+  const [selected, setSelected] = useState<Selection>(null);
 
   function handleViewChange(nextView: MedicoView) {
     setView(nextView);
+    setSelected(null);
+  }
+
+  function handleSelectSession(id: string) {
+    setSelected({ kind: 'session', id });
   }
 
   const { title, subtitle } = PANE_HEAD[view];
@@ -46,9 +54,17 @@ export function MedicoPage() {
             {title}
           </h2>
           <p className="mt-1 text-[13px] text-muted">{subtitle}</p>
-          {view === 'dashboard' && <DashboardView />}
+          {view === 'dashboard' && (
+            <DashboardView
+              selectedId={selected?.kind === 'session' ? selected.id : undefined}
+              onSelect={handleSelectSession}
+            />
+          )}
         </main>
       </div>
+      <BottomPanel>
+        {selected?.kind === 'session' ? <SessionPreview id={selected.id} /> : undefined}
+      </BottomPanel>
     </>
   );
 }

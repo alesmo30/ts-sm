@@ -7,7 +7,12 @@ import { useSessions } from '../api/useSessions';
 
 import { SessionTable } from './SessionTable';
 
-export function DashboardView() {
+interface DashboardViewProps {
+  selectedId?: string;
+  onSelect: (id: string) => void;
+}
+
+export function DashboardView({ selectedId, onSelect }: DashboardViewProps) {
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 250);
   const { data: sessions, isLoading, isError, refetch } = useSessions(debouncedQuery || undefined);
@@ -29,7 +34,9 @@ export function DashboardView() {
           query={debouncedQuery}
           onRetry={() => void refetch()}
         />
-        {!isLoading && !isError && !isEmpty && sessions && <SessionTable sessions={sessions} />}
+        {!isLoading && !isError && !isEmpty && sessions && (
+          <SessionTable sessions={sessions} selectedId={selectedId} onSelect={onSelect} />
+        )}
       </div>
     </div>
   );

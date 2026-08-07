@@ -4,9 +4,11 @@ import { StatusTag } from '../../../shared/components/StatusTag';
 
 interface SessionTableProps {
   sessions: Session[];
+  selectedId?: string;
+  onSelect: (id: string) => void;
 }
 
-export function SessionTable({ sessions }: SessionTableProps) {
+export function SessionTable({ sessions, selectedId, onSelect }: SessionTableProps) {
   return (
     <table className="w-full border-collapse text-left">
       <thead>
@@ -35,7 +37,12 @@ export function SessionTable({ sessions }: SessionTableProps) {
         {sessions.map((session) => (
           <tr
             key={session.id}
-            className="cursor-pointer transition-colors duration-[120ms] hover:bg-surface-2"
+            onClick={() => onSelect(session.id)}
+            className={
+              session.id === selectedId
+                ? 'cursor-pointer bg-accent-soft transition-colors duration-[120ms]'
+                : 'cursor-pointer transition-colors duration-[120ms] hover:bg-surface-2'
+            }
           >
             <td className="border-b border-border py-3 pr-3 font-mono text-[13.5px] tabular-nums text-fg">
               {session.date}
