@@ -1,10 +1,15 @@
+import type { ReactNode } from 'react';
 import { useState } from 'react';
 
 import { BottomPanel } from '../../../shared/components/BottomPanel';
 import { Topbar } from '../../../shared/layouts/Topbar';
+import { usePriorityPatients } from '../api/usePriorityPatients';
 import type { MedicoView, Selection } from '../types';
 
 import { DashboardView } from './DashboardView';
+import { PatientPreview } from './PatientPreview';
+import { PriorityDetail } from './PriorityDetail';
+import { PriorityView } from './PriorityView';
 import { SessionDetail } from './SessionDetail';
 import { SessionPreview } from './SessionPreview';
 import { Sidenav } from './Sidenav';
@@ -28,11 +33,15 @@ export function MedicoPage() {
   const [view, setView] = useState<MedicoView>('dashboard');
   const [selected, setSelected] = useState<Selection>(null);
   const [openSessionId, setOpenSessionId] = useState<string | null>(null);
+  const [openPatientId, setOpenPatientId] = useState<string | null>(null);
+
+  const { data: priorityPatients } = usePriorityPatients();
 
   function handleViewChange(nextView: MedicoView) {
     setView(nextView);
     setSelected(null);
     setOpenSessionId(null);
+    setOpenPatientId(null);
   }
 
   function handleSelectSession(id: string) {
@@ -40,11 +49,36 @@ export function MedicoPage() {
     setOpenSessionId(id);
   }
 
+  function handleSelectPatient(id: string) {
+    setSelected({ kind: 'patient', id });
+    setOpenPatientId(id);
+  }
+
   function handleBackToDashboard() {
     setOpenSessionId(null);
   }
 
+  function handleBackToPriority() {
+    setOpenPatientId(null);
+  }
+
   const { title, subtitle } = PANE_HEAD[view];
+  const selectedPatient =
+    selected?.kind === 'patient'
+      ? priorityPatients?.find((patient) => patient.id === selected.id)
+      : undefined;
+  const openPatient = openPatientId
+    ? priorityPatients?.find((patient) => patient.id === openPatientId)
+    : undefined;
+
+  let bottomPanelContent: ReactNode;
+  if (selected?.kind === 'session') {
+    bottomPanelContent = <SessionPreview id={selected.id} />;
+  } else if (selectedPatient) {
+    bottomPanelContent = <PatientPreview patient={selectedPatient} />;
+  } else {
+    bottomPanelContent = undefined;
+  }
 
   return (
     <>
@@ -71,11 +105,18 @@ export function MedicoPage() {
                 onSelect={handleSelectSession}
               />
             ))}
+          {view === 'priority' &&
+            (openPatient ? (
+              <PriorityDetail patient={openPatient} onBack={handleBackToPriority} />
+            ) : (
+              <PriorityView
+                selectedId={selected?.kind === 'patient' ? selected.id : undefined}
+                onSelect={handleSelectPatient}
+              />
+            ))}
         </main>
       </div>
-      <BottomPanel>
-        {selected?.kind === 'session' ? <SessionPreview id={selected.id} /> : undefined}
-      </BottomPanel>
+      <BottomPanel>{bottomPanelContent}</BottomPanel>
     </>
   );
 }
