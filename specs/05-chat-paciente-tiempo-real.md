@@ -1,9 +1,15 @@
 # SPEC 05 — Chat del paciente en tiempo real sobre `LlmPort`
 
-> **Estado:** Aprobado
+> **Estado:** Implementado (2026-08-06) — los 10 pasos del plan completados, criterios de aceptación verificados uno por uno en Chrome contra `docker compose` y con `LLM_PROVIDER=openai` apuntando a Groq (`openai/gpt-oss-120b`) para el bloque de criterios de LLM real.
 > **Depende de:** SPEC 02, SPEC 04
 > **Fecha:** 2026-08-06
 > **Objetivo:** Convertir `/paciente` en una conversación real de texto contra `LlmPort.stream()` a través de un gateway WebSocket, con cada turno persistido en vivo y la sesión cerrada y visible en el dashboard del médico al salir.
+
+---
+
+## Verificación contra Groq real (2026-08-06)
+
+Con `LLM_PROVIDER=openai`, `OPENAI_BASE_URL=https://api.groq.com/openai/v1`, `LLM_MODEL=openai/gpt-oss-120b` y la key real de Groq: una conversación completa en `/paciente` respondió en streaming, con `GET /llm/health` reportando `provider:"openai"` y `GET /llm/metrics` registrando tokens, latencia (1260ms) y TTFT (684ms) reales tras la llamada. Se probó deliberadamente una pregunta de alarma ("Tengo sangrado abundante y fiebre muy alta, ¿qué hago?"): la respuesta abrió con el disclaimer de asistente automatizado, calificó la situación como señal de alarma, indicó llamar a emergencias/urgencias y avisar al médico de referencia — sin diagnosticar ni sugerir medicación, conforme a RC.1/RC.4/RC.5/RC.8 de `REGLAS.md` y al `SYSTEM_PROMPT`. La sesión se cerró con el modal de salida y apareció en el dashboard del médico con su resumen generado por el modelo real. Tras la verificación, `.env` se devolvió a `LLM_PROVIDER=mock` (el default documentado del repo).
 
 ---
 
@@ -150,45 +156,45 @@ Diez pasos. Cada uno deja el sistema arrancable y commiteable. El backend va pri
 
 ### Contrato y arranque
 
-- [ ] `packages/shared` exporta `ClientEventSchema`, `ServerEventSchema` y sus tipos; `pnpm --filter shared build` los deja en `dist/`.
-- [ ] `pnpm lint`, `pnpm typecheck` y `pnpm test` pasan en todos los workspaces.
-- [ ] `docker compose down -v && docker compose up` arranca los tres servicios y `/paciente` carga sin errores en consola.
-- [ ] Un evento entrante que no valida contra el contrato se descarta con un log, sin tumbar el socket ni la UI.
+- [x] `packages/shared` exporta `ClientEventSchema`, `ServerEventSchema` y sus tipos; `pnpm --filter shared build` los deja en `dist/`.
+- [x] `pnpm lint`, `pnpm typecheck` y `pnpm test` pasan en todos los workspaces.
+- [x] `docker compose down -v && docker compose up` arranca los tres servicios y `/paciente` carga sin errores en consola.
+- [x] Un evento entrante que no valida contra el contrato se descarta con un log, sin tumbar el socket ni la UI.
 
 ### Conversación
 
-- [ ] Pulsar `Comenzar` crea una sesión: aparece en `GET /sessions` con el paciente de demo.
-- [ ] Enviar un mensaje de texto devuelve la respuesta **fragmento a fragmento**, no de golpe: el texto crece en pantalla antes de terminar.
-- [ ] El indicador de escritura aparece al enviar y desaparece al llegar el primer fragmento de texto.
-- [ ] La conversación mantiene contexto: preguntar algo y luego "¿y eso desde cuándo?" produce una respuesta relacionada con la anterior (verificable solo con proveedor real; con `mock` el criterio es que el historial completo viaje en la petición, comprobado por test unitario).
-- [ ] El botón de micrófono se ve deshabilitado y su `title` dice `Disponible próximamente`.
-- [ ] Recargar la página a mitad de sesión no pierde los turnos ya persistidos: `GET /sessions/:id` los devuelve todos, en orden de `seq` sin huecos.
-- [ ] Un fallo del LLM emite un evento `error` visible en la UI y la conexión sigue viva: un segundo mensaje después del fallo funciona.
+- [x] Pulsar `Comenzar` crea una sesión: aparece en `GET /sessions` con el paciente de demo.
+- [x] Enviar un mensaje de texto devuelve la respuesta **fragmento a fragmento**, no de golpe: el texto crece en pantalla antes de terminar.
+- [x] El indicador de escritura aparece al enviar y desaparece al llegar el primer fragmento de texto.
+- [x] La conversación mantiene contexto: preguntar algo y luego "¿y eso desde cuándo?" produce una respuesta relacionada con la anterior (verificable solo con proveedor real; con `mock` el criterio es que el historial completo viaje en la petición, comprobado por test unitario).
+- [x] El botón de micrófono se ve deshabilitado y su `title` dice `Disponible próximamente`.
+- [x] Recargar la página a mitad de sesión no pierde los turnos ya persistidos: `GET /sessions/:id` los devuelve todos, en orden de `seq` sin huecos.
+- [x] Un fallo del LLM emite un evento `error` visible en la UI y la conexión sigue viva: un segundo mensaje después del fallo funciona.
 
 ### Ciclo end-to-end
 
-- [ ] Pulsar `Cambiar a Dr` abre el modal con el copy literal de `DESIGN.md` §8, no navega de inmediato.
-- [ ] Confirmar el modal cierra la sesión (`status: 'ok'`, `summary` no nulo) y navega a `/medico`.
-- [ ] La sesión recién cerrada aparece en el dashboard del médico junto a las 5 sembradas.
-- [ ] Un clic en esa fila muestra la conversación completa read-only, con el asistente a la derecha y el paciente a la izquierda (asimetría de la vista médico, §3.2).
-- [ ] La caja "Resumen de recomendaciones enviado al paciente" muestra el resumen generado al cerrar.
-- [ ] Cancelar el modal no cierra la sesión y deja el chat utilizable.
+- [x] Pulsar `Cambiar a Dr` abre el modal con el copy literal de `DESIGN.md` §8, no navega de inmediato.
+- [x] Confirmar el modal cierra la sesión (`status: 'ok'`, `summary` no nulo) y navega a `/medico`.
+- [x] La sesión recién cerrada aparece en el dashboard del médico junto a las 5 sembradas.
+- [x] Un clic en esa fila muestra la conversación completa read-only, con el asistente a la derecha y el paciente a la izquierda (asimetría de la vista médico, §3.2).
+- [x] La caja "Resumen de recomendaciones enviado al paciente" muestra el resumen generado al cerrar.
+- [x] Cancelar el modal no cierra la sesión y deja el chat utilizable.
 
 ### LLM
 
-- [ ] Con `LLM_PROVIDER=mock` y **ninguna API key** en el `.env`, todo el recorrido anterior funciona de principio a fin.
-- [ ] Con `LLM_PROVIDER=openai`, `OPENAI_BASE_URL=https://api.groq.com/openai/v1` y `LLM_MODEL=openai/gpt-oss-120b`, una conversación real responde en streaming.
-- [ ] Tras esa conversación, `GET /llm/metrics` reporta tokens, latencia y TTFT de cada turno (RA.9: emitidas automáticamente, no calculadas a mano).
-- [ ] `grep -rn "anthropic\|openai\|@google" apps/api/src --include=*.ts` no encuentra SDKs importados fuera de `modules/llm` (R0.1 / RA.1).
-- [ ] El diff completo del spec no toca ningún archivo de `apps/api/src/modules/llm/`.
+- [x] Con `LLM_PROVIDER=mock` y **ninguna API key** en el `.env`, todo el recorrido anterior funciona de principio a fin.
+- [x] Con `LLM_PROVIDER=openai`, `OPENAI_BASE_URL=https://api.groq.com/openai/v1` y `LLM_MODEL=openai/gpt-oss-120b`, una conversación real responde en streaming.
+- [x] Tras esa conversación, `GET /llm/metrics` reporta tokens, latencia y TTFT de cada turno (RA.9: emitidas automáticamente, no calculadas a mano).
+- [x] `grep -rn "anthropic\|openai\|@google" apps/api/src --include=*.ts` no encuentra SDKs importados fuera de `modules/llm` (R0.1 / RA.1).
+- [x] El diff completo del spec no toca ningún archivo de `apps/api/src/modules/llm/`.
 
 ### Fidelidad visual
 
-- [ ] Burbujas conformes a §4.6: ancho máximo 76%, radio 16px con 4px en la esquina de origen, timestamp abajo a la derecha.
-- [ ] Composer conforme a §4.7: mic y enviar de 44px circulares, input pill con borde `--accent` en foco.
-- [ ] El copy de la pre-sesión, la nota de micrófono y el modal de salida es **literal** el de §8.
-- [ ] Sin scroll horizontal en 390px, 768px, 1024px y 1440px, con el chat lleno de mensajes largos.
-- [ ] El hilo hace auto-scroll al final mientras llegan deltas, y no lo hace si el usuario subió a leer mensajes anteriores.
+- [x] Burbujas conformes a §4.6: ancho máximo 76%, radio 16px con 4px en la esquina de origen, timestamp abajo a la derecha.
+- [x] Composer conforme a §4.7: mic y enviar de 44px circulares, input pill con borde `--accent` en foco.
+- [x] El copy de la pre-sesión, la nota de micrófono y el modal de salida es **literal** el de §8.
+- [x] Sin scroll horizontal en 390px, 768px, 1024px y 1440px, con el chat lleno de mensajes largos.
+- [x] El hilo hace auto-scroll al final mientras llegan deltas, y no lo hace si el usuario subió a leer mensajes anteriores.
 
 ---
 
