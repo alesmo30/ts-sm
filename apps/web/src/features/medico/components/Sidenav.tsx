@@ -24,14 +24,14 @@ interface SidenavProps {
 
 export function Sidenav({ view, onViewChange }: SidenavProps) {
   return (
-    <nav className="border-r border-border p-4">
-      <ul className="flex flex-col gap-1">
+    <nav className="overflow-x-auto border-b border-border p-2 min-[920px]:border-b-0 min-[920px]:border-r min-[920px]:p-4">
+      <ul className="flex gap-1 min-[920px]:flex-col">
         {NAV_ITEMS.map((item) => {
           const isDisabled = item.view === null;
           const isActive = item.view === view;
           const Icon = item.icon;
           return (
-            <li key={item.numbering}>
+            <li key={item.numbering} className="shrink-0 min-[920px]:shrink">
               <button
                 type="button"
                 disabled={isDisabled}
@@ -48,7 +48,7 @@ export function Sidenav({ view, onViewChange }: SidenavProps) {
                 }
               >
                 <Icon size={17} strokeWidth={1.7} />
-                <span className="text-[14px]">{item.label}</span>
+                <span className="whitespace-nowrap text-[14px]">{item.label}</span>
                 <span className="ml-auto font-mono text-[11px] text-tx-muted">
                   {item.numbering}
                 </span>

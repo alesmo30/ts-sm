@@ -20,7 +20,7 @@ export function PriorityDetail({ patient, onBack }: PriorityDetailProps) {
         Volver a pacientes con atención personalizada
       </button>
 
-      <div className="mt-4 grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-5 min-[1180px]:grid-cols-2">
         <div>
           <p className="text-[13px] font-medium text-muted">Resumen del LLM</p>
           <p className="mt-1 text-[13.5px] text-fg">{patient.llmSummary}</p>

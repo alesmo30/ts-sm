@@ -90,7 +90,7 @@ export function MedicoPage() {
         switchLabel="Cambiar a paciente"
         switchTo="/paciente"
       />
-      <div className="grid grid-cols-1 md:grid-cols-[minmax(260px,1fr)_minmax(0,2fr)]">
+      <div className="grid grid-cols-1 min-[920px]:grid-cols-[minmax(260px,1fr)_minmax(0,2fr)]">
         <Sidenav view={view} onViewChange={handleViewChange} />
         <main className="px-[30px] py-[26px]">
           <h2 className="font-display text-[21px] font-semibold tracking-[-0.01em] text-fg">
