@@ -43,6 +43,9 @@ curl localhost:3000/health
 | `GET` | `/patients/priority/:id` | detalle de un paciente prioritario |
 | `GET` | `/knowledge/references` | referencias activas de la base de conocimiento |
 | `GET` | `/knowledge/state` | versión vigente de la base de conocimiento |
+| `POST` | `/llm/complete` | llamada de verificación al proveedor de LLM activo |
+| `GET` | `/llm/health` | proveedor y modelo activos (`provider`, `model`, `ready`) |
+| `GET` | `/llm/metrics` | acumulado en memoria de tokens/costo/latencia por llamada |
 
 Para bajar todo (incluyendo volúmenes de datos):
 
@@ -71,6 +74,33 @@ pnpm --filter shared build   # @ts-sm/shared necesita su dist/ para que api lo r
 pnpm --filter api db:migrate
 pnpm seed                    # idempotente — correrlo dos veces no duplica datos
 ```
+
+## Capa de LLM: cambiar de proveedor
+
+Todo acceso al modelo pasa por `LlmPort` (`apps/api/src/modules/llm/llm.port.ts`) — ver `specs/04-capa-agnostica-llm.md`. El proveedor se resuelve una sola vez en el bootstrap de Nest a partir de cinco variables de entorno; cambiarlo es editar `.env` y reiniciar, sin tocar ningún archivo `.ts`.
+
+| Variable | Default | Notas |
+|---|---|---|
+| `LLM_PROVIDER` | `mock` | `mock` \| `anthropic` \| `openai`. Un valor fuera de esos tres aborta el arranque. |
+| `LLM_MODEL` | — | Sin default. Obligatorio si `LLM_PROVIDER` no es `mock`; el arranque aborta nombrando la variable si falta. |
+| `ANTHROPIC_API_KEY` | — | Obligatoria solo si `LLM_PROVIDER=anthropic`. |
+| `OPENAI_API_KEY` | — | Obligatoria solo si `LLM_PROVIDER=openai`. |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Host compatible con la API de OpenAI. |
+
+Con `LLM_PROVIDER=mock` (el default) la API arranca sin ninguna key: cuatro respuestas fijas rotativas, útiles para probar la tubería sin gastar cuota de ningún proveedor.
+
+**Ejemplo — Groq como gateway compatible con OpenAI**, sin escribir un cuarto driver:
+
+```bash
+LLM_PROVIDER=openai
+LLM_MODEL=openai/gpt-oss-120b
+OPENAI_API_KEY=gsk_...
+OPENAI_BASE_URL=https://api.groq.com/openai/v1
+```
+
+El driver `openai` no sabe que está hablando con Groq; solo usa el `baseURL` configurado. El mismo mecanismo sirve para cualquier gateway compatible con la API de `chat.completions`.
+
+**Advertencia (R0.1 de `REGLAS.md`):** el `.env` que se entrega, el README y el video de demo deben apuntar al modelo obligatorio anunciado el 7 de agosto de 2026 — nunca a otro proveedor como fallback ni "solo para probar". Verificar con `GET /llm/health` antes de grabar cualquier entregable.
 
 ## Estructura
 
