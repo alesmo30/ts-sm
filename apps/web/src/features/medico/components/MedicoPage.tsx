@@ -5,6 +5,7 @@ import { Topbar } from '../../../shared/layouts/Topbar';
 import type { MedicoView, Selection } from '../types';
 
 import { DashboardView } from './DashboardView';
+import { SessionDetail } from './SessionDetail';
 import { SessionPreview } from './SessionPreview';
 import { Sidenav } from './Sidenav';
 
@@ -26,14 +27,21 @@ const PANE_HEAD: Record<MedicoView, { title: string; subtitle: string }> = {
 export function MedicoPage() {
   const [view, setView] = useState<MedicoView>('dashboard');
   const [selected, setSelected] = useState<Selection>(null);
+  const [openSessionId, setOpenSessionId] = useState<string | null>(null);
 
   function handleViewChange(nextView: MedicoView) {
     setView(nextView);
     setSelected(null);
+    setOpenSessionId(null);
   }
 
   function handleSelectSession(id: string) {
     setSelected({ kind: 'session', id });
+    setOpenSessionId(id);
+  }
+
+  function handleBackToDashboard() {
+    setOpenSessionId(null);
   }
 
   const { title, subtitle } = PANE_HEAD[view];
@@ -54,12 +62,15 @@ export function MedicoPage() {
             {title}
           </h2>
           <p className="mt-1 text-[13px] text-muted">{subtitle}</p>
-          {view === 'dashboard' && (
-            <DashboardView
-              selectedId={selected?.kind === 'session' ? selected.id : undefined}
-              onSelect={handleSelectSession}
-            />
-          )}
+          {view === 'dashboard' &&
+            (openSessionId ? (
+              <SessionDetail id={openSessionId} onBack={handleBackToDashboard} />
+            ) : (
+              <DashboardView
+                selectedId={selected?.kind === 'session' ? selected.id : undefined}
+                onSelect={handleSelectSession}
+              />
+            ))}
         </main>
       </div>
       <BottomPanel>
