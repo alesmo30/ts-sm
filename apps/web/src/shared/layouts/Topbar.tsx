@@ -9,9 +9,18 @@ interface TopbarProps {
   switchLabel: string;
   switchTo: string;
   leftExtra?: ReactNode;
+  onInterceptSwitch?: () => void;
 }
 
-export function Topbar({ markLabel, title, subtitle, switchLabel, switchTo, leftExtra }: TopbarProps) {
+export function Topbar({
+  markLabel,
+  title,
+  subtitle,
+  switchLabel,
+  switchTo,
+  leftExtra,
+  onInterceptSwitch,
+}: TopbarProps) {
   return (
     <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-4 sm:px-7">
       <div className="flex min-w-0 items-center gap-3">
@@ -31,6 +40,11 @@ export function Topbar({ markLabel, title, subtitle, switchLabel, switchTo, left
         <Link
           to={switchTo}
           aria-label={switchLabel}
+          onClick={(event) => {
+            if (!onInterceptSwitch) return;
+            event.preventDefault();
+            onInterceptSwitch();
+          }}
           className="flex items-center gap-2 rounded-full border border-border-mid bg-surface-2 px-[14px] py-[9px] text-[13.5px] font-medium text-fg transition-colors duration-150 hover:border-accent hover:text-accent"
         >
           <ArrowLeftRight size={14} strokeWidth={1.7} />
