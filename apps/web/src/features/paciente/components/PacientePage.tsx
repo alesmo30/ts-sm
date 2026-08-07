@@ -1,10 +1,17 @@
 import { FileText } from 'lucide-react';
 
 import { Topbar } from '../../../shared/layouts/Topbar';
+import { useConversation } from '../api/useConversation';
+import { useSessionLifecycle } from '../api/useSessionLifecycle';
 
+import { ChatView } from './ChatView';
+import { Composer } from './Composer';
 import { PreSesion } from './PreSesion';
 
 export function PacientePage() {
+  const { sessionId, isStarting, start } = useSessionLifecycle();
+  const { turns, streamingText, isStreaming, error, send } = useConversation(sessionId);
+
   return (
     <>
       <Topbar
@@ -24,11 +31,19 @@ export function PacientePage() {
           </button>
         }
       />
-      <main className="flex min-h-[calc(100vh-72px)] items-center justify-center px-5">
-        <div className="w-full max-w-[720px]">
-          <PreSesion />
-        </div>
-      </main>
+
+      {sessionId === null ? (
+        <main className="flex min-h-[calc(100vh-72px)] items-center justify-center px-5">
+          <div className="w-full max-w-[720px]">
+            <PreSesion onStart={() => void start()} isStarting={isStarting} />
+          </div>
+        </main>
+      ) : (
+        <main className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-[720px] flex-col">
+          <ChatView turns={turns} streamingText={streamingText} isStreaming={isStreaming} error={error} />
+          <Composer onSend={send} />
+        </main>
+      )}
     </>
   );
 }
