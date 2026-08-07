@@ -1,12 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { ServerEvent, TranscriptTurn } from '@ts-sm/shared';
+import type { ServerEvent, Session, TranscriptTurn } from '@ts-sm/shared';
 
 import { LlmPort } from '../llm/llm.port';
 import type { LlmMessage } from '../llm/llm.types';
 import { LlmMetricsService } from '../llm/metrics';
 import { SessionsService } from '../sessions/sessions.service';
 
-import { SYSTEM_PROMPT } from './conversation.prompt';
+import { SUMMARY_PROMPT, SYSTEM_PROMPT } from './conversation.prompt';
 
 function turnToLlmMessage(turn: TranscriptTurn): LlmMessage {
   return {
@@ -101,5 +101,57 @@ export class ConversationService {
         emit({ type: 'error', message: 'No fue posible generar una respuesta. Intenta de nuevo.' });
       }
     });
+  }
+
+  async closeSession(sessionId: string): Promise<Session> {
+    const detail = await this.sessionsService.getDetail(sessionId);
+    const hasAssistantTurn = detail.turns.some((turn) => turn.who === 'assistant');
+
+    let summary: string | null = null;
+
+    if (hasAssistantTurn) {
+      summary = await this.metrics.runInScope(async () => {
+        const start = Date.now();
+        const messages: LlmMessage[] = [
+          { role: 'system', content: SUMMARY_PROMPT },
+          ...detail.turns.map(turnToLlmMessage),
+        ];
+
+        try {
+          const completion = await this.llmPort.complete(messages);
+
+          this.metrics.recordCall({
+            provider: this.llmPort.providerName,
+            model: completion.model,
+            method: 'complete',
+            inputTokens: completion.usage.inputTokens,
+            outputTokens: completion.usage.outputTokens,
+            latencyMs: completion.latencyMs,
+            ok: true,
+          });
+          this.logger.log(
+            `provider=${this.llmPort.providerName} model=${completion.model} method=complete(close) latencyMs=${completion.latencyMs}`,
+          );
+
+          return completion.text;
+        } catch (error) {
+          this.metrics.recordCall({
+            provider: this.llmPort.providerName,
+            model: this.llmPort.modelId,
+            method: 'complete',
+            inputTokens: 0,
+            outputTokens: 0,
+            latencyMs: Date.now() - start,
+            ok: false,
+          });
+          this.logger.error(
+            `provider=${this.llmPort.providerName} model=${this.llmPort.modelId} method=complete(close) falló: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return null;
+        }
+      });
+    }
+
+    return this.sessionsService.update(sessionId, { status: 'ok', summary });
   }
 }

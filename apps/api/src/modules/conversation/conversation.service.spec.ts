@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import type { CreateTranscriptTurnInput, SessionDetail, TranscriptTurn } from '@ts-sm/shared';
+import type { CreateTranscriptTurnInput, Session, SessionDetail, TranscriptTurn } from '@ts-sm/shared';
 
 import { LlmPort } from '../llm/llm.port';
 import type { LlmCompletion, LlmDelta, LlmMessage, LlmStructured } from '../llm/llm.types';
@@ -16,7 +16,12 @@ class FakePort implements LlmPort {
   receivedMessages: LlmMessage[] = [];
 
   complete(): Promise<LlmCompletion> {
-    throw new Error('no usado en este test');
+    return Promise.resolve({
+      text: 'Resumen de una línea.',
+      model: 'mock',
+      usage: { inputTokens: 10, outputTokens: 4, costUsd: 0 },
+      latencyMs: 8,
+    });
   }
 
   async *stream(messages: LlmMessage[]): AsyncIterable<LlmDelta> {
@@ -146,5 +151,101 @@ describe('ConversationService', () => {
 
     expect(sessionsService.addTurn).toHaveBeenCalledTimes(1);
     expect(events.map((event) => (event as { type: string }).type)).toEqual(['turn_saved', 'error']);
+  });
+
+  it('closeSession genera un resumen de una línea y cierra la sesión con status ok', async () => {
+    const turns: TranscriptTurn[] = [
+      fakeTurn({ seq: 0, who: 'patient', text: 'hola' }),
+      fakeTurn({ seq: 1, who: 'assistant', text: 'hola, ¿en qué te ayudo?' }),
+    ];
+
+    const sessionsService = {
+      addTurn: jest.fn(),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns } as unknown as SessionDetail)),
+      update: jest.fn((_id: string, patch: { status?: string; summary?: string | null }) =>
+        Promise.resolve({ id: SESSION_ID, status: patch.status, summary: patch.summary } as unknown as Session),
+      ),
+    };
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: new FakePort() },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    const result = await service.closeSession(SESSION_ID);
+
+    expect(sessionsService.update).toHaveBeenCalledWith(SESSION_ID, { status: 'ok', summary: 'Resumen de una línea.' });
+    expect(result.status).toBe('ok');
+  });
+
+  it('closeSession cierra la sesión con summary null si el LLM falla', async () => {
+    const turns: TranscriptTurn[] = [
+      fakeTurn({ seq: 0, who: 'patient', text: 'hola' }),
+      fakeTurn({ seq: 1, who: 'assistant', text: 'hola, ¿en qué te ayudo?' }),
+    ];
+
+    const sessionsService = {
+      addTurn: jest.fn(),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns } as unknown as SessionDetail)),
+      update: jest.fn((_id: string, patch: { status?: string; summary?: string | null }) =>
+        Promise.resolve({ id: SESSION_ID, status: patch.status, summary: patch.summary } as unknown as Session),
+      ),
+    };
+
+    class FailingCompletePort extends FakePort {
+      complete(): Promise<LlmCompletion> {
+        return Promise.reject(new Error('proveedor caído'));
+      }
+    }
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: new FailingCompletePort() },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    const result = await service.closeSession(SESSION_ID);
+
+    expect(sessionsService.update).toHaveBeenCalledWith(SESSION_ID, { status: 'ok', summary: null });
+    expect(result.status).toBe('ok');
+  });
+
+  it('closeSession no llama al LLM si no hay turnos del asistente', async () => {
+    const turns: TranscriptTurn[] = [fakeTurn({ seq: 0, who: 'patient', text: 'hola' })];
+
+    const sessionsService = {
+      addTurn: jest.fn(),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns } as unknown as SessionDetail)),
+      update: jest.fn((_id: string, patch: { status?: string; summary?: string | null }) =>
+        Promise.resolve({ id: SESSION_ID, status: patch.status, summary: patch.summary } as unknown as Session),
+      ),
+    };
+
+    const port = new FakePort();
+    const completeSpy = jest.spyOn(port, 'complete');
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: port },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    await service.closeSession(SESSION_ID);
+
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(sessionsService.update).toHaveBeenCalledWith(SESSION_ID, { status: 'ok', summary: null });
   });
 });
