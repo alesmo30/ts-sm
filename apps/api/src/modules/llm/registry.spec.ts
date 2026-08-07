@@ -1,6 +1,7 @@
+import { MockDriver } from './drivers/mock.driver';
+import { OpenAiDriver } from './drivers/openai.driver';
 import { validateLlmConfig } from './llm.config';
 import { createLlmDriver } from './registry';
-import { MockDriver } from './drivers/mock.driver';
 
 describe('createLlmDriver', () => {
   it('devuelve el driver mock para LLM_PROVIDER=mock', () => {
@@ -13,10 +14,15 @@ describe('createLlmDriver', () => {
     expect(() => validateLlmConfig({ LLM_PROVIDER: 'basura' })).toThrow(/LLM_PROVIDER/);
   });
 
-  it('openai y anthropic lanzan "no implementado todavía" (aún no registrados)', () => {
-    const openaiConfig = validateLlmConfig({ LLM_PROVIDER: 'openai', LLM_MODEL: 'x', OPENAI_API_KEY: 'k' });
-    expect(() => createLlmDriver(openaiConfig)).toThrow(/no implementado todavía/);
+  it('devuelve el driver openai para LLM_PROVIDER=openai', () => {
+    const config = validateLlmConfig({ LLM_PROVIDER: 'openai', LLM_MODEL: 'x', OPENAI_API_KEY: 'k' });
+    const driver = createLlmDriver(config);
+    expect(driver).toBeInstanceOf(OpenAiDriver);
+    expect(driver.providerName).toBe('openai');
+    expect(driver.modelId).toBe('x');
+  });
 
+  it('anthropic lanza "no implementado todavía" (aún no registrado)', () => {
     const anthropicConfig = validateLlmConfig({
       LLM_PROVIDER: 'anthropic',
       LLM_MODEL: 'x',

@@ -3,8 +3,8 @@ import { Body, Controller, Get, Post } from '@nestjs/common';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 
 import { CompleteRequestSchema, type CompleteRequest } from './dto/complete.dto';
-import type { LlmCompletion } from './llm.types';
 import { LlmService, type LlmHealth } from './llm.service';
+import type { LlmCompletion } from './llm.types';
 import type { LlmMetricsSnapshot } from './metrics';
 
 @Controller('llm')

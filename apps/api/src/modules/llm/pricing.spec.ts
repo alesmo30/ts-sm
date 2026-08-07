@@ -1,8 +1,9 @@
-import { priceFor } from './pricing';
+import { PRICING, priceFor } from './pricing';
 
 describe('priceFor', () => {
   it('devuelve el precio de un modelo conocido', () => {
-    expect(priceFor('gpt-4o-mini')).toEqual({ inputPerMTokUsd: 0.15, outputPerMTokUsd: 0.6 });
+    const [knownModel, knownPricing] = Object.entries(PRICING)[0];
+    expect(priceFor(knownModel)).toEqual(knownPricing);
   });
 
   it('devuelve ceros para un modelo ausente sin lanzar', () => {

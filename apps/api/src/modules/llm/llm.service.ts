@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import type { LlmCompletion, LlmMessage, LlmOptions } from './llm.types';
 import { LlmPort } from './llm.port';
+import type { LlmCompletion, LlmMessage, LlmOptions } from './llm.types';
 import { LlmMetricsService, type LlmMetricsSnapshot } from './metrics';
 
 export interface LlmHealth {

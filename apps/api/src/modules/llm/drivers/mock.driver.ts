@@ -1,15 +1,7 @@
 import { z, type ZodTypeAny } from 'zod';
 
 import { LlmPort } from '../llm.port';
-import type {
-  LlmCompletion,
-  LlmDelta,
-  LlmMessage,
-  LlmOptions,
-  LlmStreamOptions,
-  LlmStructured,
-  LlmStructuredOptions,
-} from '../llm.types';
+import type { LlmCompletion, LlmDelta, LlmMessage, LlmStructured, LlmStructuredOptions } from '../llm.types';
 
 const FIXED_RESPONSES = [
   'Entendido, voy a revisar la información del paciente antes de continuar.',
@@ -62,7 +54,7 @@ export class MockDriver extends LlmPort {
     return response;
   }
 
-  async complete(messages: LlmMessage[], _options?: LlmOptions): Promise<LlmCompletion> {
+  async complete(messages: LlmMessage[]): Promise<LlmCompletion> {
     const start = Date.now();
     await delay(SIMULATED_DELAY_MS);
     const text = this.nextResponse();
@@ -80,7 +72,7 @@ export class MockDriver extends LlmPort {
     };
   }
 
-  async *stream(messages: LlmMessage[], _options?: LlmStreamOptions): AsyncIterable<LlmDelta> {
+  async *stream(messages: LlmMessage[]): AsyncIterable<LlmDelta> {
     const start = Date.now();
     const text = this.nextResponse();
     const words = text.split(' ');

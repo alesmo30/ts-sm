@@ -2,14 +2,14 @@ import { Test } from '@nestjs/testing';
 
 import { LlmPort } from './llm.port';
 import { LlmService } from './llm.service';
+import type { LlmCompletion, LlmDelta, LlmStructured } from './llm.types';
 import { LlmMetricsService } from './metrics';
-import type { LlmCompletion, LlmDelta, LlmMessage, LlmStreamOptions, LlmStructured, LlmStructuredOptions } from './llm.types';
 
 class FakePort implements LlmPort {
   readonly providerName = 'mock' as const;
   readonly modelId = 'mock';
 
-  complete(_messages: LlmMessage[]): Promise<LlmCompletion> {
+  complete(): Promise<LlmCompletion> {
     return Promise.resolve({
       text: 'respuesta fija',
       model: 'mock',
@@ -18,12 +18,11 @@ class FakePort implements LlmPort {
     });
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
-  async *stream(_messages: LlmMessage[], _options?: LlmStreamOptions): AsyncIterable<LlmDelta> {
-    yield { type: 'done', completion: await this.complete(_messages) };
+  async *stream(): AsyncIterable<LlmDelta> {
+    yield { type: 'done', completion: await this.complete() };
   }
 
-  structured<T>(_messages: LlmMessage[], _options: LlmStructuredOptions<T>): Promise<LlmStructured<T>> {
+  structured<T>(): Promise<LlmStructured<T>> {
     throw new Error('no usado en este test');
   }
 }
