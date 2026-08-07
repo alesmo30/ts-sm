@@ -10,6 +10,7 @@ import { DashboardView } from './DashboardView';
 import { PatientPreview } from './PatientPreview';
 import { PriorityDetail } from './PriorityDetail';
 import { PriorityView } from './PriorityView';
+import { ReferencesView } from './ReferencesView';
 import { SessionDetail } from './SessionDetail';
 import { SessionPreview } from './SessionPreview';
 import { Sidenav } from './Sidenav';
@@ -114,6 +115,7 @@ export function MedicoPage() {
                 onSelect={handleSelectPatient}
               />
             ))}
+          {view === 'references' && <ReferencesView />}
         </main>
       </div>
       <BottomPanel>{bottomPanelContent}</BottomPanel>
