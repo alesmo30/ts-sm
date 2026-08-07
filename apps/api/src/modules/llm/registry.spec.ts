@@ -1,3 +1,4 @@
+import { AnthropicDriver } from './drivers/anthropic.driver';
 import { MockDriver } from './drivers/mock.driver';
 import { OpenAiDriver } from './drivers/openai.driver';
 import { validateLlmConfig } from './llm.config';
@@ -22,12 +23,15 @@ describe('createLlmDriver', () => {
     expect(driver.modelId).toBe('x');
   });
 
-  it('anthropic lanza "no implementado todavía" (aún no registrado)', () => {
-    const anthropicConfig = validateLlmConfig({
+  it('devuelve el driver anthropic para LLM_PROVIDER=anthropic', () => {
+    const config = validateLlmConfig({
       LLM_PROVIDER: 'anthropic',
       LLM_MODEL: 'x',
       ANTHROPIC_API_KEY: 'k',
     });
-    expect(() => createLlmDriver(anthropicConfig)).toThrow(/no implementado todavía/);
+    const driver = createLlmDriver(config);
+    expect(driver).toBeInstanceOf(AnthropicDriver);
+    expect(driver.providerName).toBe('anthropic');
+    expect(driver.modelId).toBe('x');
   });
 });

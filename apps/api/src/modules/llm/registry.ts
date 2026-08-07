@@ -1,3 +1,4 @@
+import { AnthropicDriver } from './drivers/anthropic.driver';
 import { MockDriver } from './drivers/mock.driver';
 import { OpenAiDriver } from './drivers/openai.driver';
 import type { LlmConfig } from './llm.config';
@@ -14,6 +15,6 @@ export function createLlmDriver(config: LlmConfig): LlmPort {
         model: config.model,
       });
     case 'anthropic':
-      throw new Error('Driver anthropic no implementado todavía');
+      return new AnthropicDriver({ apiKey: config.anthropicApiKey ?? '', model: config.model });
   }
 }
