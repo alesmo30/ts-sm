@@ -1,10 +1,27 @@
 import { FileText } from 'lucide-react';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { Topbar } from '../../../shared/layouts/Topbar';
+import { useConversation } from '../api/useConversation';
+import { useSessionLifecycle } from '../api/useSessionLifecycle';
 
+import { ChatView } from './ChatView';
+import { Composer } from './Composer';
+import { ExitModal } from './ExitModal';
 import { PreSesion } from './PreSesion';
 
 export function PacientePage() {
+  const navigate = useNavigate();
+  const { sessionId, isStarting, isClosing, start, close } = useSessionLifecycle();
+  const { turns, streamingText, isStreaming, error, send } = useConversation(sessionId);
+  const [isExitModalOpen, setIsExitModalOpen] = useState(false);
+
+  async function handleConfirmExit(): Promise<void> {
+    await close();
+    navigate('/medico');
+  }
+
   return (
     <>
       <Topbar
@@ -13,6 +30,7 @@ export function PacientePage() {
         subtitle="Asistente de voz — MeridianAsiste"
         switchLabel="Cambiar a Dr"
         switchTo="/medico"
+        onInterceptSwitch={sessionId ? () => setIsExitModalOpen(true) : undefined}
         leftExtra={
           <button
             type="button"
@@ -24,11 +42,27 @@ export function PacientePage() {
           </button>
         }
       />
-      <main className="flex min-h-[calc(100vh-72px)] items-center justify-center px-5">
-        <div className="w-full max-w-[720px]">
-          <PreSesion />
-        </div>
-      </main>
+
+      {sessionId === null ? (
+        <main className="flex min-h-[calc(100vh-72px)] items-center justify-center px-5">
+          <div className="w-full max-w-[720px]">
+            <PreSesion onStart={() => void start()} isStarting={isStarting} />
+          </div>
+        </main>
+      ) : (
+        <main className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-[720px] flex-col">
+          <ChatView turns={turns} streamingText={streamingText} isStreaming={isStreaming} error={error} />
+          <Composer onSend={send} />
+        </main>
+      )}
+
+      {isExitModalOpen && (
+        <ExitModal
+          isClosing={isClosing}
+          onCancel={() => setIsExitModalOpen(false)}
+          onConfirm={() => void handleConfirmExit()}
+        />
+      )}
     </>
   );
 }

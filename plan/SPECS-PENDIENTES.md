@@ -2,18 +2,15 @@
 
 > Este archivo existe para sobrevivir un borrado de contexto. Antes de correr `/spec` para cualquiera de los cuatro specs de abajo, léelo entero — trae las decisiones ya tomadas, las referencias exactas a `DESIGN.md`/`REGLAS.md`, y las preguntas que probablemente haga la Fase 2 de `/spec` para que ya tengas la respuesta pensada.
 >
-> **Estado al 2026-08-07 (fin de sesión):** SPEC 01, SPEC 02, SPEC 03 y **SPEC 04 implementados**. SPEC 01 y 02 ya están mergeados a `main` (PR #1 y PR #3). **SPEC 03 y SPEC 04 NO están mergeados todavía** — cada uno vive en su propia rama, con PR pendiente de abrir.
+> **Estado al 2026-08-06:** SPEC 01 a 04 **implementados y mergeados a `main`** (PR #1, #3, #4 y #5). **SPEC 05 redactado** en `specs/05-chat-paciente-tiempo-real.md`, estado `Borrador` — pendiente de que el usuario lo relea y lo pase a `Aprobado` antes de `/spec-impl`. SPEC 06 y 07 siguen sin redactar.
 >
-> - `spec-03-vistas-medico`: 11 commits, `specs/03-vistas-medico.md` en `Implementado`, 28 criterios verificados uno por uno (navegador + `grep` + tests).
-> - `spec-04-capa-agnostica-llm`: 13 commits, `specs/04-capa-agnostica-llm.md` en `Implementado` (43/44 criterios — falta la verificación end-to-end del driver Anthropic contra la API real, no había key de Anthropic disponible en la sesión, solo una de Groq; cubierto por test unitario con el cliente del SDK mockeado). Los tres drivers (`mock`, `openai`, `anthropic`) quedaron construidos; `openai` se probó en vivo contra Groq (`openai/gpt-oss-120b`) con costo y tokens reales en `/llm/metrics`.
->
-> **Falta el `git push` y el `gh pr create` contra `main` para ambas ramas** — no se hizo porque pushear/abrir PR requiere confirmación explícita del usuario cada vez, y no se pidió en ninguna de las dos sesiones. SPEC 05 y 06 siguen sin redactar.
+> **Renumeración (decidida el 2026-08-06):** el bloque de voz + vista paciente se partió en dos. La numeración vigente es **05 = chat de texto, 06 = capa de voz, 07 = conocimiento en caliente** (este último aparecía como "SPEC 06" en versiones anteriores de este archivo). Motivo: al cerrar SPEC 05 hay demo end-to-end persistente aunque el pipeline de audio nunca funcione, que era el riesgo mayor del día.
 >
 > ### Cómo retomar en la próxima sesión
 >
-> 1. Confirmar que `spec-03-vistas-medico` y `spec-04-capa-agnostica-llm` siguen con sus commits (`git log --oneline main..spec-03-vistas-medico` / `main..spec-04-capa-agnostica-llm`).
-> 2. Si el usuario quiere abrir los PR: `git push -u origin <rama>` y `gh pr create` contra `main` para cada una — **pedir confirmación antes**, es una acción visible/compartida.
-> 3. Una vez SPEC 04 esté **mergeado** a `main` (SPEC 05 depende de él, no de SPEC 03): `git checkout main && git pull`, y recién ahí arrancar SPEC 05 con `/spec 05-voz-paciente` (el usuario lo corre, `/spec` tiene `disable-model-invocation` y no se puede invocar por agente).
+> 1. `git checkout main && git pull` — SPEC 04 ya está mergeado, no hay ramas de spec vivas.
+> 2. Releer `specs/05-chat-paciente-tiempo-real.md`. Si está bien, cambiar `Estado: Borrador` a `Aprobado` y correr `/spec-impl 05-chat-paciente-tiempo-real`.
+> 3. Redactar SPEC 06 (voz) solo después de que 05 esté implementado — 06 se construye encima de un chat que ya funciona. `/spec` lo corre el usuario a mano (`disable-model-invocation`, no se puede invocar por agente).
 > 4. `packages/shared` tiene build step (`tsc → dist/`) — cualquier cambio a un contrato exige `pnpm --filter shared build` antes de que `api`/`web` lo vean. Ver `CLAUDE.md` para el resto de fricciones ya resueltas (no las repitas).
 > 5. **Cuando haya key de Anthropic real**: correr una vez `POST /llm/complete` con `LLM_PROVIDER=anthropic` para cerrar el único criterio de SPEC 04 que quedó sin verificar contra la API real (el driver ya está escrito y cubierto por test unitario).
 > 6. Si aparece `TS2589: Type instantiation is excessively deep and possibly infinite` al usar `zod-to-json-schema` dentro de un método genérico (`structured<T>(...)` o similar), ver el patrón ya aplicado en `openai.driver.ts`/`anthropic.driver.ts`: extraer una función `toJsonSchema(schema: any): Record<string, unknown>` fuera de la clase con `// eslint-disable-next-line @typescript-eslint/no-explicit-any` en ese único punto — no escalar `any` al resto del archivo.
@@ -23,7 +20,7 @@
 >
 > Evaluado y **descartado para la redacción**, viable con matices para la **implementación**:
 > - `/spec` no se puede invocar desde un agente (`disable-model-invocation`) — cada spec se redacta a mano, uno a la vez, con el usuario respondiendo la Fase 2.
-> - El grafo de dependencias limita el paralelismo real: `SPEC 05` depende de `04`, `SPEC 06` depende de `03` + `05`. Hoy (con 03 ya implementado) solo `04` está desbloqueado — no hay nada que correr en paralelo con él todavía.
+> - El grafo de dependencias limita el paralelismo real: `SPEC 05` depende de `04`, y tanto `SPEC 06` (voz) como `SPEC 07` (KB en caliente) dependen de `05`. Hoy solo `05` está desbloqueado — no hay nada que correr en paralelo con él. Una vez `05` esté implementado, `06` y `07` sí son paralelizables entre sí (tocan el mismo gateway, así que revisar conflictos antes de fusionar).
 > - Implementación en worktree es razonable **una vez el spec esté `Aprobado`**, pero con un checkpoint de revisión humana antes del PR — el ritmo paso-a-paso de SPEC 03 atrapó dos bugs reales en vivo (`children` como array en `BottomPanel`, dos veces) que un agente sin ese loop de verificación en navegador probablemente no habría atrapado.
 
 ---
@@ -31,13 +28,14 @@
 ## Orden y dependencias
 
 ```
-SPEC 03 (vistas médico)  ──depende de──▶  SPEC 02 (ya implementado)   [IMPLEMENTADO · PR pendiente]
-SPEC 04 (LLMPort)        ──independiente de 03                        [IMPLEMENTADO · PR pendiente]
-SPEC 05 (voz + paciente) ──depende de──▶  SPEC 04 + SPEC 02           [DESBLOQUEADO — falta redactar]
-SPEC 06 (KB en caliente)  ──depende de──▶  SPEC 03 + SPEC 05
+SPEC 03 (vistas médico)   ──depende de──▶  SPEC 02                    [MERGEADO · PR #4]
+SPEC 04 (LLMPort)         ──independiente de 03                       [MERGEADO · PR #5]
+SPEC 05 (chat paciente)   ──depende de──▶  SPEC 04 + SPEC 02          [REDACTADO · Borrador]
+SPEC 06 (voz STT/TTS)     ──depende de──▶  SPEC 05                    [falta redactar]
+SPEC 07 (KB en caliente)  ──depende de──▶  SPEC 03 + SPEC 05          [falta redactar]
 ```
 
-SPEC 04 era el bloque 🔴 más importante del día según el plan original (ventaja competitiva real: cambiar `LLM_PROVIDER` sin tocar código fuera de `modules/llm`) — **ya implementado y verificado**, incluida una prueba en vivo contra Groq. SPEC 05 queda como el siguiente bloque a redactar.
+SPEC 04 era el bloque 🔴 más importante del día según el plan original (ventaja competitiva real: cambiar `LLM_PROVIDER` sin tocar código fuera de `modules/llm`) — implementado, verificado en vivo contra Groq y mergeado. SPEC 05 es el siguiente a implementar.
 
 ---
 
@@ -67,7 +65,7 @@ Las diez preguntas se resolvieron al redactar el spec. El detalle y la justifica
 
 1. **Navegación:** estado local en `MedicoPage` (`view` + `selected`). La URL sigue siendo `/medico`. Sin rutas anidadas, sin deep-linking.
 2. **`Simular llamada` y `Enviar correo`:** **fuera**, las dos. El detalle del paciente prioritario no lleva botones. Cae con ellas el componente `Toast` de §4.12.
-3. **Referencias:** listado + visor modal de 680px, todo lectura. Sin checkboxes, sin borrado — eso exige un `DELETE /knowledge/references` que no existe y es de SPEC 06.
+3. **Referencias:** listado + visor modal de 680px, todo lectura. Sin checkboxes, sin borrado — eso exige un `DELETE /knowledge/references` que no existe y es de SPEC 07.
 4. **Responsive:** **dentro**. Cards bajo 768px y tabs horizontales en el sidenav bajo 920px. La matriz de 9 anchos es criterio de aceptación.
 5. **Ítem `03 Agregar conocimiento`:** deshabilitado con `title="Disponible próximamente"`. Ni placeholder ni clic mudo.
 6. **Panel inferior:** compartido, refleja sesión y paciente. Las referencias abren modal y no lo tocan.
@@ -131,48 +129,69 @@ Construir los tres drivers (`mock`, `anthropic`, `openai`) detrás del `LlmPort`
 
 ---
 
-## SPEC 05 — Pipeline de voz end-to-end + vista paciente
+## SPEC 05 — Chat del paciente en tiempo real sobre `LlmPort`
 
-**Cubre del plan original:** T2 (pipeline de voz, 1h30 — el bloque de mayor riesgo del día) + T3 (vista paciente completa).
+> ✅ **Redactado:** `specs/05-chat-paciente-tiempo-real.md`, estado `Borrador` (2026-08-06). Cubre la mitad de texto de T2 + T3 completo: gateway WebSocket en `modules/conversation`, streaming de deltas de `LlmPort.stream()`, persistencia turno a turno del lado del servidor, cierre de sesión con resumen de una línea, y la vista `/paciente` completa en modo texto. Toda la Fase 2 quedó resuelta en el propio spec ("Decisiones tomadas y descartadas", 12 entradas).
+
+**Decisiones de Fase 2 con efecto fuera del spec:**
+
+- El módulo se llama `modules/conversation`, **no** `modules/voice` como preveía el plan original — el mismo gateway transporta texto (05), audio (06) y progreso de ingesta (07).
+- Transporte `ws` nativo vía `@nestjs/platform-ws`, sin Socket.IO ni dependencia de cliente en `apps/web`.
+- El servidor es el único que escribe turnos; el cliente nunca llama `POST /sessions/:id/turns`.
+- Paciente de demo fijo en una constante del front, sin formulario (DESIGN.md §8 no define UI de alta).
+- Criterio de aceptación doble: funciona con `LLM_PROVIDER=mock` sin ninguna key, y se verifica en vivo contra Groq (`openai/gpt-oss-120b`).
+
+---
+
+## SPEC 06 — Capa de voz (Deepgram STT + TTS)
+
+**Cubre del plan original:** la mitad de audio de T2, encima del chat que SPEC 05 ya dejó funcionando.
 
 ### Objetivo en una frase
 
-Conectar micrófono → STT (Deepgram) → `LlmPort.stream()` (mock, de SPEC 04) → TTS (Azure) → parlante en la vista `/paciente`, con push-to-talk, modo texto siempre disponible, y persistencia de la sesión completa al cerrar (usando `POST /sessions` y `POST /sessions/:id/turns` de SPEC 02).
+Conectar micrófono → STT (Deepgram Nova-3) → el gateway de `modules/conversation` que SPEC 05 ya construyó → TTS (Deepgram Aura-2, `aura-2-celeste-es`) → parlante en `/paciente`, con push-to-talk y los flags de voz de `DESIGN.md` §4.6.
 
 ### Ya resuelto — no reabrir en Fase 2
+
+- **Deepgram cubre STT y TTS con una sola cuenta.** Verificado en la documentación el 2026-08-06: `aura-2-celeste-es` es voz de **español colombiano** (Aura-2 lista también `aura-2-gloria-es` colombiana, y `aura-2-aquila-es`/`aura-2-selena-es` para es-419 genérico), y Nova-3 hace STT en español. **Azure sale del stack** — una cuenta externa menos que crear, mejor para R0.3/RA.2. Todo lo que este archivo decía antes sobre `es-CO-SalomeNeural` de Azure queda derogado.
+- **Costo (pay-as-you-go, agosto 2026):** STT Nova-3 multilingüe $0.0058/min, TTS Aura-2 $0.030 por 1k caracteres, **$200 de crédito gratis al registrarse sin tarjeta**. Estimado del reto completo: menos de $5. Poner límite de gasto al crear la cuenta.
+- **La key vive solo en el backend.** El navegador manda PCM al gateway de Nest y Nest habla con Deepgram; la key nunca sale del servidor. Descartado el token efímero al navegador.
+- **El gateway ya existe** (`modules/conversation`, SPEC 05). Este spec le agrega familias de evento de audio, no crea transporte nuevo.
+- **El chat de texto ya funciona** y el botón de micrófono ya está renderizado deshabilitado en el composer con `title="Disponible próximamente"` — este spec lo habilita, no rehace el layout de §4.7.
+
+### Ya resuelto (heredado del plan original)
 
 - **El riesgo más alto del día — atacarlo temprano, no al final.** El plan original es explícito: si a las 16:00 (hora de ese día) el audio no fluye, cae a `MediaRecorder` + Deepgram batch (no streaming) y se refina después. No perseguir streaming perfecto a costa de no tener nada funcionando.
 - **`AudioWorklet`, no `MediaRecorder`**, para mejor control de latencia — decisión ya tomada, PCM 16kHz.
 - **Deepgram con keyterm prompting** cargado con vocabulario clínico inicial (términos del dominio: nombres de procedimientos, medicamentos comunes de las referencias sembradas).
-- **Azure TTS `es-CO-SalomeNeural`**, streaming por frase — no esperar la respuesta completa del LLM antes de empezar a hablar. Esto es lo que hace que `LlmPort.stream()` (definido en SPEC 04) importe de verdad aquí: el segmentador por frase consume el stream de deltas, no una respuesta completa.
+- **TTS con streaming por frase** — no esperar la respuesta completa del LLM antes de empezar a hablar. Esto es lo que hace que `LlmPort.stream()` (SPEC 04) importe de verdad aquí: el segmentador por frase consume los deltas que SPEC 05 ya está transportando por el socket, no una respuesta completa. *(El proveedor ya no es Azure: ver arriba, `aura-2-celeste-es` de Deepgram.)*
 - **Fallback a Web Speech API activable por variable de entorno** (R0.4/RA.5 de REGLAS.md — "el demo no puede depender de que una API externa esté viva"). Probarlo el mismo día que se construye, no dejarlo para D5.
 - **Instrumentar latencias desde el minuto uno**: TTFT, tiempo de STT, tiempo de TTS, E2E — se mide en vivo, no se reconstruye después. Usa `metrics.ts` de SPEC 04.
 - **Push-to-talk**: mantener presionado para hablar, botón en estado `--danger` pulsante mientras graba (DESIGN.md §4.7, tabla de estados del botón de micrófono: reposo/hover/grabando/procesando/denegado).
 - **Burbujas con flags exactos** (DESIGN.md §4.6): `🎙 TRANSCRITO DE AUDIO` (entrante, mono 10.5px `--muted`) y `🔊 Leído en voz alta` (asistente, mono 10.5px `--accent`). Indicador de escritura: tres puntos con `blink` 1.2s y retardos .2s/.4s.
-- **Modo texto siempre disponible en el composer** — no es un fallback oculto, es un control de accesibilidad de primera clase (R0.6 + respaldo del evaluador si su micrófono falla).
-- **Modal de cambio de vista finaliza y guarda la sesión** — al cambiar a `/medico`, la sesión activa se cierra (usa `PATCH /sessions/:id` de SPEC 02 para `status`/`summary`) y el historial en memoria se persiste turno a turno (ya venía insertándose vía `POST /sessions/:id/turns` durante la conversación, no solo al final — así una sesión que se corta abruptamente no pierde todo).
-- **Historial en memoria durante la sesión, persistencia completa al cerrar** — matiz: los turnos individuales SÍ se persisten en vivo (cada `POST /sessions/:id/turns`), lo que se consolida al cerrar es el `status` final y el `summary`.
-- **Copy literal de DESIGN.md §8** para pre-sesión, topbar paciente, nota de micrófono, modal de salida — no parafrasear.
+- **Copy literal de DESIGN.md §8** para la nota de micrófono y los estados del botón — no parafrasear.
+
+> Los bullets del plan original sobre modo texto, persistencia turno a turno y modal de cierre **ya están resueltos e implementados en SPEC 05** — no vuelven a decidirse acá.
 
 ### Preguntas que Fase 2 probablemente necesita hacer
 
-1. **¿Cuentas de Deepgram/Azure ya existen, o se crean al arrancar este spec?** El plan original marcaba esto como riesgo: "crear las cuentas hoy en la mañana, no en la tarde. Poner límites de gasto al crearlas." Verificar que sigan activas si ya pasó tiempo desde que se planeó.
-2. **¿El gateway WebSocket vive en `modules/voice` (nuevo) o dentro de `modules/sessions`?** El plan original prevé un módulo `voice` que SPEC 01 explícitamente decidió NO crear vacío ("carpetas vacías... ensucian el commit inicial"). Este spec es quien lo crea con contenido real.
-3. **¿El `LlmPort.stream()` de SPEC 04 ya soporta el mock con delay simulado realista para probar el segmentador por frase, o hace falta ajustar el mock aquí?** Si SPEC 04 ya se implementó, verificar antes de asumir.
+1. **¿La cuenta de Deepgram ya está creada y con límite de gasto puesto?** Se crea al arrancar este spec, no en medio.
+2. **¿El fallback a Web Speech API cubre STT, TTS o los dos?** RA.5 exige intercambiables por configuración con fallback local; decidir si el fallback es simétrico o solo del lado que más cueste.
+3. **¿El `stream()` del mock trocea con un ritmo suficientemente realista para probar el segmentador por frase, o hace falta ajustarlo?** SPEC 05 ya lo ejercitó con Groq real: revisar sus fricciones antes de asumir.
+4. **¿La transcripción parcial se pinta en vivo en la burbuja o solo la final?** Afecta al contrato de eventos del gateway.
 
 ### Verificación de referencia
 
-- Hablar por micrófono en `/paciente`, ver el texto transcrito con su flag de audio.
-- Escuchar la respuesta en voz con acento colombiano.
-- Al cerrar la sesión aparece un registro nuevo en el dashboard del médico (SPEC 03) — end-to-end real, no solo el backend.
-- Clic en ese registro nuevo muestra la conversación completa read-only.
-- Log de cada turno reporta TTFT, tokens, latencia E2E.
-- Sin scroll horizontal en 390px/768px/1024px/1440px.
-- Gasto del día: $0 (mock + créditos gratis de Deepgram/Azure).
+- Hablar por micrófono en `/paciente`, ver el texto transcrito con su flag `🎙 TRANSCRITO DE AUDIO`.
+- Escuchar la respuesta en voz con acento colombiano (`aura-2-celeste-es`).
+- La respuesta empieza a sonar antes de que el LLM termine de generar (segmentación por frase).
+- Log de cada turno reporta TTFT, tiempo de STT, tiempo de TTS y latencia E2E.
+- Apagar Deepgram por variable de entorno cae a Web Speech API sin romper la sesión.
+- Gasto acumulado dentro del crédito gratis de $200.
 
 ---
 
-## SPEC 06 — Conocimiento en caliente desde la vista paciente
+## SPEC 07 — Conocimiento en caliente desde la vista paciente
 
 **Cubre del plan original:** el resto de M5 (subida real de documentos, antes solo de-lectura en SPEC 03) + T4.
 
@@ -189,7 +208,7 @@ Que el botón `Actualizar conocimiento` del topbar del paciente permita subir te
 - **Chip `KB vN`** (DESIGN.md §4.13): pill mono 11px en el header del chat. Al incrementar, pulso breve a `--accent-soft` y vuelta al reposo — animación sutil, "nunca compite visualmente con la conversación".
 - **Chip de progreso flotante, no bloqueante** (DESIGN.md §4.13): esquina inferior derecha sobre el composer, etapa actual + barra 4px + nombre de archivo truncado. Al completar: confirmación verde 2s y se desvanece. El chat sigue vivo mientras esto ocurre — criterio de aceptación explícito del plan original.
 - **5 etapas del pipeline, orden y texto exactos** (DESIGN.md §4.10, ya en el contrato `IngestStage` de SPEC 02): `Recibido` → `Extrayendo texto` → `Fragmentando` → `Generando embeddings` → `Indexado`.
-- **Barra de progreso simulada por WebSocket** — mismo mecanismo de tiempo real que SPEC 05 ya construyó para el gateway de voz; reutilizar el patrón, no inventar uno nuevo.
+- **Barra de progreso simulada por WebSocket** — mismo gateway `modules/conversation` que SPEC 05 construyó y SPEC 06 amplió; agregar una familia de eventos de ingesta, no inventar un transporte nuevo.
 - **Modal con tres opciones** (texto crudo, subida de archivos, eliminar referencias existentes) — dropzone y filechip con estilos ya definidos en DESIGN.md §4.9.
 - **R0.5 de REGLAS.md es la compuerta que este spec cierra**: "Subir/eliminar conocimiento desde consola funciona — el agente aprende y olvida". Demo en vivo: preguntar → subir → cambia la respuesta → borrar → vuelve a la anterior. **Sin reiniciar.**
 
