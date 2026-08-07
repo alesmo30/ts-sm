@@ -1,11 +1,33 @@
+import { useState } from 'react';
+
 import { Topbar } from '../../../shared/layouts/Topbar';
-import { useSessions } from '../api/useSessions';
+import type { MedicoView } from '../types';
 
 import { Sidenav } from './Sidenav';
 
+const PANE_HEAD: Record<MedicoView, { title: string; subtitle: string }> = {
+  dashboard: {
+    title: 'Dashboard de control',
+    subtitle: 'Todas las sesiones atendidas por el asistente de voz',
+  },
+  priority: {
+    title: 'Pacientes con atención personalizada',
+    subtitle: 'Solicitada por el paciente o detectada por el asistente de voz',
+  },
+  references: {
+    title: 'Referencias',
+    subtitle: 'Documentos e indicaciones que alimentan el RAG del asistente',
+  },
+};
+
 export function MedicoPage() {
-  // Andamio provisional del Paso 8 de SPEC 02 — lo reemplaza la tabla real de SPEC 03.
-  const { data: sessions, isLoading, isError } = useSessions();
+  const [view, setView] = useState<MedicoView>('dashboard');
+
+  function handleViewChange(nextView: MedicoView) {
+    setView(nextView);
+  }
+
+  const { title, subtitle } = PANE_HEAD[view];
 
   return (
     <>
@@ -17,25 +39,12 @@ export function MedicoPage() {
         switchTo="/paciente"
       />
       <div className="grid grid-cols-1 md:grid-cols-[minmax(260px,1fr)_minmax(0,2fr)]">
-        <Sidenav />
+        <Sidenav view={view} onViewChange={handleViewChange} />
         <main className="px-[30px] py-[26px]">
           <h2 className="font-display text-[21px] font-semibold tracking-[-0.01em] text-fg">
-            Dashboard de control
+            {title}
           </h2>
-          <p className="mt-1 text-[13px] text-muted">
-            Todas las sesiones atendidas por el asistente de voz
-          </p>
-          {isLoading && <p className="mt-4 text-[13px] text-muted">Cargando sesiones…</p>}
-          {isError && (
-            <p className="mt-4 text-[13px] text-danger">No se pudieron cargar las sesiones.</p>
-          )}
-          {sessions && (
-            <ul className="mt-4 text-[13px] text-fg">
-              {sessions.map((session) => (
-                <li key={session.id}>{session.code}</li>
-              ))}
-            </ul>
-          )}
+          <p className="mt-1 text-[13px] text-muted">{subtitle}</p>
         </main>
       </div>
     </>
