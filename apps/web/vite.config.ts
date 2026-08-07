@@ -14,6 +14,12 @@ export default defineConfig({
   optimizeDeps: {
     include: ['@ts-sm/shared'],
   },
+  build: {
+    commonjsOptions: {
+      include: [/packages\/shared/, /node_modules/],
+      transformMixedEsModules: true,
+    },
+  },
   server: {
     host: true,
     port: 5173,
