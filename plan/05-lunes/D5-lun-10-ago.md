@@ -111,6 +111,17 @@ Grabar con buena luz y buen audio. **Cara visible** en la parte 2 — es requisi
 - [ ] **#4** Conversación de voz en tiempo real funciona
 - [ ] **#5** Subir y eliminar conocimiento funciona, con el agente aprendiendo y olvidando
 
+### Higiene de código — auditoría de endpoints sin consumidor
+
+Registrado desde SPEC 03 (2026-08-06). Barrer los endpoints de `apps/api` y contrastarlos con lo que el front realmente llama; los que sigan sin consumidor se eliminan antes de entregar.
+
+- [ ] Listar todas las rutas del backend: `grep -rn "@Get\|@Post\|@Patch\|@Delete" apps/api/src/modules`
+- [ ] Para cada una, buscar su consumidor en `apps/web/src`. Sin consumidor = candidata a borrar
+- [ ] **Caso conocido:** `GET /patients/priority/:id`. SPEC 03 decidió pintar el detalle del paciente prioritario con el objeto que ya trae el listado, así que quedó sin uso. Verificar si SPEC 05 lo consumió al escalar un paciente desde una sesión de voz; si no, eliminar controlador, servicio y método de repositorio
+- [ ] Borrar también su test si el service tenía uno específico
+- [ ] `pnpm lint`, `pnpm typecheck` y `pnpm test` pasan después del barrido
+- [ ] Actualizar la tabla de endpoints del `README.md` si se eliminó alguno
+
 ### Seguridad del repositorio
 
 - [ ] `LICENSE` MIT en la raíz
