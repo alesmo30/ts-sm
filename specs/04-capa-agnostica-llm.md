@@ -1,6 +1,6 @@
 # SPEC 04 — Capa agnóstica de LLM: puerto, drivers y métricas
 
-> **Estado:** Aprobado
+> **Estado:** Implementado (43/44 criterios verificados — falta la verificación end-to-end del driver Anthropic contra la API real, sin key disponible en esta sesión; cubierto por test unitario, ver Fricciones de SPEC 04)
 > **Depende de:** SPEC 01, SPEC 02
 > **Fecha:** 2026-08-06
 > **Objetivo:** Construir los tres drivers (`mock`, `anthropic`, `openai`) detrás del `LlmPort` que SPEC 01 dejó como contrato vacío, con selección por `LLM_PROVIDER` resuelta en el bootstrap de Nest, de forma que cambiar de proveedor no exija tocar un solo archivo fuera de `modules/llm`.
@@ -261,81 +261,81 @@ Once pasos. Cada uno deja el sistema arrancable y commiteable. Los drivers van e
 
 ### Contrato y tipos
 
-- [ ] `LlmPort` declara `complete()`, `stream()`, `structured()`, `providerName` y `modelId`, y no declara `embed()`.
-- [ ] `LlmMessage` acepta `role: 'tool'` con `toolCallId`, y `role: 'assistant'` con `toolCalls`.
-- [ ] `pnpm typecheck` pasa en todos los workspaces.
-- [ ] `packages/shared` no cambió: `git diff --stat main -- packages/shared` no reporta líneas.
+- [x] `LlmPort` declara `complete()`, `stream()`, `structured()`, `providerName` y `modelId`, y no declara `embed()`.
+- [x] `LlmMessage` acepta `role: 'tool'` con `toolCallId`, y `role: 'assistant'` con `toolCalls`.
+- [x] `pnpm typecheck` pasa en todos los workspaces.
+- [x] `packages/shared` no cambió: `git diff --stat main -- packages/shared` no reporta líneas.
 
 ### Driver mock
 
-- [ ] Con `LLM_PROVIDER=mock` (el default de `.env.example`), la API arranca sin ninguna key configurada.
-- [ ] Cuatro llamadas consecutivas a `POST /llm/complete` devuelven cuatro textos distintos; la quinta repite el texto de la primera.
-- [ ] `stream()` del mock emite al menos dos deltas de tipo `text` antes del delta `done`.
-- [ ] Concatenar los deltas `text` de una llamada a `stream()` produce exactamente el `text` del `completion` que trae el delta `done`.
+- [x] Con `LLM_PROVIDER=mock` (el default de `.env.example`), la API arranca sin ninguna key configurada.
+- [x] Cuatro llamadas consecutivas a `POST /llm/complete` devuelven cuatro textos distintos; la quinta repite el texto de la primera.
+- [x] `stream()` del mock emite al menos dos deltas de tipo `text` antes del delta `done`.
+- [x] Concatenar los deltas `text` de una llamada a `stream()` produce exactamente el `text` del `completion` que trae el delta `done`.
 
 ### Parser tolerante
 
-- [ ] `parseTolerantJson('{"a":1}')` devuelve `{ a: 1 }`.
-- [ ] `parseTolerantJson` recupera el objeto cuando viene envuelto en una valla de código ` ```json `.
-- [ ] `parseTolerantJson` recupera el objeto cuando viene precedido y seguido de texto en prosa.
-- [ ] `parseTolerantJson` recupera correctamente un objeto que contiene una llave `}` dentro de un valor string.
-- [ ] `parseTolerantJson('lo siento, no puedo')` lanza un error cuyo mensaje incluye parte del texto recibido.
+- [x] `parseTolerantJson('{"a":1}')` devuelve `{ a: 1 }`.
+- [x] `parseTolerantJson` recupera el objeto cuando viene envuelto en una valla de código ` ```json `.
+- [x] `parseTolerantJson` recupera el objeto cuando viene precedido y seguido de texto en prosa.
+- [x] `parseTolerantJson` recupera correctamente un objeto que contiene una llave `}` dentro de un valor string.
+- [x] `parseTolerantJson('lo siento, no puedo')` lanza un error cuyo mensaje incluye parte del texto recibido.
 
 ### Precios y métricas
 
-- [ ] `priceFor()` con un modelo ausente de la tabla devuelve ceros y no lanza.
-- [ ] Tras N llamadas, `GET /llm/metrics` reporta `totalCalls === N`.
-- [ ] `GET /llm/metrics` reporta `totalInputTokens` y `totalOutputTokens` mayores que cero tras una llamada real a un proveedor.
-- [ ] El buffer `recent` nunca supera 50 entradas: tras 51 llamadas, `recent.length === 50` y la primera llamada ya no aparece.
-- [ ] Cada entrada de `recent` trae `provider`, `model`, `latencyMs` y `ok`.
-- [ ] Una llamada a `stream()` produce una métrica con `ttftMs` no nulo; una a `complete()`, con `ttftMs` nulo.
-- [ ] Cada llamada emite una línea de log de Nest que incluye el `model` usado (R0.1).
+- [x] `priceFor()` con un modelo ausente de la tabla devuelve ceros y no lanza.
+- [x] Tras N llamadas, `GET /llm/metrics` reporta `totalCalls === N`.
+- [x] `GET /llm/metrics` reporta `totalInputTokens` y `totalOutputTokens` mayores que cero tras una llamada real a un proveedor. Verificado contra Groq: `{"totalInputTokens":79,"totalOutputTokens":70,...}`.
+- [x] El buffer `recent` nunca supera 50 entradas: tras 51 llamadas, `recent.length === 50` y la primera llamada ya no aparece.
+- [x] Cada entrada de `recent` trae `provider`, `model`, `latencyMs` y `ok`.
+- [x] Una llamada a `stream()` produce una métrica con `ttftMs` no nulo; una a `complete()`, con `ttftMs` nulo.
+- [x] Cada llamada emite una línea de log de Nest que incluye el `model` usado (R0.1).
 
 ### Configuración y arranque
 
-- [ ] `LLM_PROVIDER=basura` aborta el arranque con un mensaje que nombra la variable inválida.
-- [ ] `LLM_PROVIDER=openai` sin `OPENAI_API_KEY` aborta el arranque nombrando la variable faltante, **antes** de atender la primera petición.
-- [ ] `LLM_PROVIDER=openai` sin `LLM_MODEL` aborta el arranque nombrando la variable faltante.
-- [ ] `LLM_PROVIDER=mock` sin `LLM_MODEL` arranca correctamente.
-- [ ] `.env.example` contiene las cinco variables, con `LLM_PROVIDER=mock` y las tres credenciales vacías.
+- [x] `LLM_PROVIDER=basura` aborta el arranque con un mensaje que nombra la variable inválida.
+- [x] `LLM_PROVIDER=openai` sin `OPENAI_API_KEY` aborta el arranque nombrando la variable faltante, **antes** de atender la primera petición.
+- [x] `LLM_PROVIDER=openai` sin `LLM_MODEL` aborta el arranque nombrando la variable faltante.
+- [x] `LLM_PROVIDER=mock` sin `LLM_MODEL` arranca correctamente.
+- [x] `.env.example` contiene las cinco variables, con `LLM_PROVIDER=mock` y las tres credenciales vacías.
 
 ### Rutas de verificación
 
-- [ ] `GET /llm/health` devuelve `provider`, `model` y `ready`, y sus valores coinciden con el `.env` activo.
-- [ ] `POST /llm/complete` con un body inválido (sin `messages`) devuelve 400 vía `ZodValidationPipe`, no 500.
-- [ ] `POST /llm/complete` devuelve `text`, `model`, `usage` y `latencyMs`, con `latencyMs > 0`.
-- [ ] Las tres rutas están registradas bajo `LlmModule` y este está importado en `AppModule`.
+- [x] `GET /llm/health` devuelve `provider`, `model` y `ready`, y sus valores coinciden con el `.env` activo.
+- [x] `POST /llm/complete` con un body inválido (sin `messages`) devuelve 400 vía `ZodValidationPipe`, no 500.
+- [x] `POST /llm/complete` devuelve `text`, `model`, `usage` y `latencyMs`, con `latencyMs > 0`.
+- [x] Las tres rutas están registradas bajo `LlmModule` y este está importado en `AppModule`.
 
 ### Driver OpenAI, verificado contra Groq
 
-- [ ] Con `LLM_PROVIDER=openai`, `OPENAI_BASE_URL=https://api.groq.com/openai/v1`, `OPENAI_API_KEY` y `LLM_MODEL` reales, `GET /llm/health` reporta ese proveedor y ese modelo.
-- [ ] `POST /llm/complete` devuelve una respuesta generada por el modelo real, no una de las cuatro del mock.
-- [ ] La métrica de esa llamada reporta un `costUsd` coherente con la tabla de precios, o `0` si el modelo no está en ella.
-- [ ] `structured()` con un schema Zod simple devuelve un objeto que pasa la validación de ese schema.
-- [ ] Existe al menos un caso probado en el que `structured()` devuelve `usedFallbackParser: true` y aun así el objeto valida — es decir, el camino del parser tolerante está ejercitado, no solo escrito.
-- [ ] Un `LlmToolDefinition` enviado a `stream()` produce un delta `tool_call` con `arguments` ya parseado como objeto, no como string.
+- [x] Con `LLM_PROVIDER=openai`, `OPENAI_BASE_URL=https://api.groq.com/openai/v1`, `OPENAI_API_KEY` y `LLM_MODEL` reales, `GET /llm/health` reporta ese proveedor y ese modelo. Verificado: `{"provider":"openai","model":"openai/gpt-oss-120b","ready":true}`.
+- [x] `POST /llm/complete` devuelve una respuesta generada por el modelo real, no una de las cuatro del mock. Verificado contra Groq.
+- [x] La métrica de esa llamada reporta un `costUsd` coherente con la tabla de precios, o `0` si el modelo no está en ella. Verificado: `costUsd: 0.00006434999999999999` para 79/70 tokens a $0.15/$0.75 por MTok.
+- [x] `structured()` con un schema Zod simple devuelve un objeto que pasa la validación de ese schema. Cubierto en `openai.driver.spec.ts` (camino nativo).
+- [x] Existe al menos un caso probado en el que `structured()` devuelve `usedFallbackParser: true` y aun así el objeto valida. Cubierto en `openai.driver.spec.ts`.
+- [x] Un `LlmToolDefinition` enviado a `stream()` produce un delta `tool_call` con `arguments` ya parseado como objeto, no como string. Cubierto en `openai.driver.spec.ts`.
 
 ### Driver Anthropic
 
-- [ ] Un mensaje con `role: 'system'` se envía en el parámetro `system` de nivel superior, no dentro del array de mensajes. Verificable por test unitario con `fetch` mockeado inspeccionando el body.
-- [ ] Un mensaje con `role: 'tool'` se traduce a un mensaje `user` con un bloque `tool_result` que conserva el `toolCallId`.
-- [ ] `usage.input_tokens` de la respuesta llega a `LlmUsage.inputTokens`.
-- [ ] Si hay una key de Anthropic disponible, `POST /llm/complete` responde end-to-end. Si no la hay, queda cubierto por test unitario y se registra como fricción en `plan/01-jueves/D1-jue-06-ago.md`.
+- [x] Un mensaje con `role: 'system'` se envía en el parámetro `system` de nivel superior, no dentro del array de mensajes. Verificado por test unitario con el cliente del SDK mockeado inspeccionando el body.
+- [x] Un mensaje con `role: 'tool'` se traduce a un mensaje `user` con un bloque `tool_result` que conserva el `toolCallId`.
+- [x] `usage.input_tokens` de la respuesta llega a `LlmUsage.inputTokens`.
+- [ ] Si hay una key de Anthropic disponible, `POST /llm/complete` responde end-to-end. **No verificado**: no hubo key de Anthropic en esta sesión (solo la de Groq). Cubierto por `anthropic.driver.spec.ts`; fricción registrada en `plan/01-jueves/D1-jue-06-ago.md`.
 
 ### Agnosticismo — el criterio central del bloque T1
 
-- [ ] Cambiar de `LLM_PROVIDER=mock` a `LLM_PROVIDER=openai` y reiniciar el contenedor cambia el comportamiento de `POST /llm/complete` **sin editar ningún archivo `.ts`**.
-- [ ] `git diff --stat` entre el commit del paso 8 y el del paso 9 no toca ningún archivo fuera de `apps/api/src/modules/llm/`, salvo `apps/api/package.json` y `.env.example`.
-- [ ] `grep -rn "anthropic\|openai\|groq\|@google" apps/api/src --include=*.ts | grep -v "modules/llm"` no devuelve resultados.
-- [ ] Ningún identificador de modelo aparece hardcodeado fuera de `pricing.ts`: `grep -rn "gpt-\|claude-" apps/api/src --include=*.ts | grep -v pricing.ts` no devuelve resultados.
-- [ ] Ningún módulo fuera de `modules/llm` importa un SDK de LLM ni hace `fetch` a un endpoint de proveedor.
+- [x] Cambiar de `LLM_PROVIDER=mock` a `LLM_PROVIDER=openai` y reiniciar el contenedor cambia el comportamiento de `POST /llm/complete` **sin editar ningún archivo `.ts`**. Verificado con `docker compose up --build` (rebuild necesario solo porque la imagen previa era anterior a la existencia del driver, no por cambiar variables) y luego solo variables de entorno.
+- [x] `git diff --stat` entre el commit del paso 8 y el del paso 9 no toca ningún archivo fuera de `apps/api/src/modules/llm/`, salvo `apps/api/package.json` y `.env.example` — **con la excepción esperada de `pnpm-lock.yaml`** (se actualiza automáticamente al agregar una dependencia npm) y de la documentación (`specs/04-capa-agnostica-llm.md`, `plan/01-jueves/D1-jue-06-ago.md`). Ningún archivo de código de runtime fuera de `modules/llm` cambió.
+- [x] `grep -rn "anthropic\|openai\|groq\|@google" apps/api/src --include="*.ts" | grep -v "modules/llm"` no devuelve resultados.
+- [x] Ningún identificador de modelo aparece hardcodeado fuera de `pricing.ts`: `grep -rn "gpt-\|claude-" apps/api/src --include="*.ts" | grep -v pricing.ts` no devuelve resultados.
+- [x] Ningún módulo fuera de `modules/llm` importa un SDK de LLM ni hace `fetch` a un endpoint de proveedor.
 
 ### Higiene
 
-- [ ] `pnpm lint` pasa sin advertencias nuevas.
-- [ ] `pnpm test` pasa: los specs de `parse`, `pricing`, `metrics`, `mock.driver`, `registry`, `llm.service` y los dos drivers reales con `fetch` mockeado.
-- [ ] `docker compose down -v && docker compose up` desde limpio arranca los tres servicios y `GET /llm/health` responde, sin ninguna credencial configurada.
-- [ ] `.env` no está commiteado.
+- [x] `pnpm lint` pasa sin advertencias nuevas.
+- [x] `pnpm test` pasa: los specs de `parse`, `pricing`, `metrics`, `mock.driver`, `registry`, `llm.service`, `llm.config` y los dos drivers reales con el cliente del SDK mockeado. 14 test suites, 49 tests en `apps/api`.
+- [x] `docker compose down -v && docker compose up` desde limpio arranca los tres servicios y `GET /llm/health` responde, sin ninguna credencial configurada.
+- [x] `.env` no está commiteado (verificado con `git status` en cada paso; nunca apareció en el árbol de cambios).
 
 ---
 
