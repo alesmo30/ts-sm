@@ -24,7 +24,13 @@ const sessionDetailFixture = { ...sessionFixture, turns: [] };
 function mockFetchByPath() {
   return vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.includes('/sessions/') ) {
+    if (url.includes('/stats/counts')) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ sessions: 1, priorityPatients: 0, references: 0 }),
+      });
+    }
+    if (url.includes('/sessions/')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(sessionDetailFixture) });
     }
     if (url.includes('/sessions')) {
@@ -56,22 +62,20 @@ afterEach(() => {
 });
 
 describe('MedicoPage — selección de fila', () => {
-  it('el panel inferior deja el texto de reposo al seleccionar una sesión', async () => {
+  it('al hacer clic en una sesión se abre su detalle con la información del paciente', async () => {
     vi.stubGlobal('fetch', mockFetchByPath());
 
     renderMedicoPage();
 
-    expect(
-      screen.getByText('Selecciona una sesión o un paciente para ver su información aquí.'),
-    ).toBeInTheDocument();
-
     const row = await screen.findByText('SES-4821');
     fireEvent.click(row);
 
-    await waitFor(() =>
-      expect(
-        screen.queryByText('Selecciona una sesión o un paciente para ver su información aquí.'),
-      ).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText('Volver al dashboard')).toBeInTheDocument());
+
+    expect(
+      screen.getByText((_, element) =>
+        (element?.textContent ?? '').startsWith('Marcela Ortiz · Consulta preoperatoria ·'),
+      ),
+    ).toBeInTheDocument();
   });
 });

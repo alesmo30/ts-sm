@@ -103,8 +103,15 @@ export class ConversationService {
     });
   }
 
-  async closeSession(sessionId: string): Promise<Session> {
+  async closeSession(sessionId: string): Promise<Session | null> {
     const detail = await this.sessionsService.getDetail(sessionId);
+    const hasPatientTurn = detail.turns.some((turn) => turn.who === 'patient');
+
+    if (!hasPatientTurn) {
+      await this.sessionsService.remove(sessionId);
+      return null;
+    }
+
     const hasAssistantTurn = detail.turns.some((turn) => turn.who === 'assistant');
 
     let summary: string | null = null;

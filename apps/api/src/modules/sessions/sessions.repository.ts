@@ -49,7 +49,7 @@ export class SessionsRepository {
       .select()
       .from(sessions)
       .where(where)
-      .orderBy(desc(sessions.date), desc(sessions.time));
+      .orderBy(desc(sessions.createdAt));
   }
 
   async findById(id: string): Promise<SessionRow | undefined> {
@@ -133,6 +133,10 @@ export class SessionsRepository {
 
       return created;
     });
+  }
+
+  async remove(id: string): Promise<void> {
+    await this.db.delete(sessions).where(eq(sessions.id, id));
   }
 
   async update(id: string, patch: UpdateSessionInput): Promise<SessionRow | undefined> {

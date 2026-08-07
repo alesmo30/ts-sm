@@ -1,12 +1,25 @@
 import { Mic, Send } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 
 interface ComposerProps {
   onSend: (text: string) => void;
 }
 
+// 2 líneas a 19px de line-height + 13px de padding vertical arriba y abajo.
+const MAX_TEXTAREA_HEIGHT_PX = 19 * 2 + 13 * 2;
+
 export function Composer({ onSend }: ComposerProps) {
   const [text, setText] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const nextHeight = Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT_PX);
+    el.style.height = `${nextHeight}px`;
+    el.style.overflowY = el.scrollHeight > MAX_TEXTAREA_HEIGHT_PX ? 'auto' : 'hidden';
+  }, [text]);
 
   function handleSubmit(event: FormEvent): void {
     event.preventDefault();
@@ -16,8 +29,15 @@ export function Composer({ onSend }: ComposerProps) {
     setText('');
   }
 
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      handleSubmit(event);
+    }
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="flex items-center gap-3 border-t border-border px-5 py-4">
+    <form onSubmit={handleSubmit} className="flex items-end gap-3 border-t border-border px-5 py-4">
       <button
         type="button"
         disabled
@@ -28,12 +48,14 @@ export function Composer({ onSend }: ComposerProps) {
         <Mic size={16} strokeWidth={1.7} />
       </button>
 
-      <input
-        type="text"
+      <textarea
+        ref={textareaRef}
+        rows={1}
         value={text}
         onChange={(event) => setText(event.target.value)}
+        onKeyDown={handleKeyDown}
         placeholder="Escribe tu pregunta…"
-        className="flex-1 rounded-full border border-border-mid bg-surface-2 px-[18px] py-[13px] text-[14px] text-fg placeholder:text-tx-muted focus:border-accent focus:outline-none"
+        className="max-h-[64px] flex-1 resize-none overflow-y-hidden rounded-[22px] border border-border-mid bg-surface-2 px-[18px] py-[13px] text-[14px] leading-[19px] text-fg placeholder:text-tx-muted focus:border-accent focus:outline-none"
       />
 
       <button

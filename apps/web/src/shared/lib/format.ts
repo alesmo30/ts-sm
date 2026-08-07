@@ -12,5 +12,13 @@ export function formatBytes(bytes: number | null): string {
 }
 
 export function formatDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat('es-CO', { dateStyle: 'short' }).format(date);
+}
+
+export function formatTime(date: Date): string {
+  return new Intl.DateTimeFormat('es-CO', { hour: '2-digit', minute: '2-digit' }).format(date);
+}
+
+export function formatDateTime(date: Date): string {
+  return new Intl.DateTimeFormat('es-CO', { dateStyle: 'short', timeStyle: 'short' }).format(date);
 }
