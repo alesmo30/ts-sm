@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Topbar } from '../../../shared/layouts/Topbar';
 import type { MedicoView } from '../types';
 
+import { DashboardView } from './DashboardView';
 import { Sidenav } from './Sidenav';
 
 const PANE_HEAD: Record<MedicoView, { title: string; subtitle: string }> = {
@@ -45,6 +46,7 @@ export function MedicoPage() {
             {title}
           </h2>
           <p className="mt-1 text-[13px] text-muted">{subtitle}</p>
+          {view === 'dashboard' && <DashboardView />}
         </main>
       </div>
     </>
