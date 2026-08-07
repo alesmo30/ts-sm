@@ -2,6 +2,7 @@ import 'reflect-metadata';
 
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { WsAdapter } from '@nestjs/platform-ws';
 
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -15,6 +16,7 @@ async function bootstrap(): Promise<void> {
   app.enableCors();
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalInterceptors(new LoggingInterceptor());
+  app.useWebSocketAdapter(new WsAdapter(app));
 
   const { port } = app.get<Configuration>(CONFIGURATION);
   await app.listen(port);
