@@ -9,6 +9,7 @@ import { LlmModule } from './modules/llm/llm.module';
 import { PatientsModule } from './modules/patients/patients.module';
 import { SessionsModule } from './modules/sessions/sessions.module';
 import { StatsModule } from './modules/stats/stats.module';
+import { VoiceModule } from './modules/voice/voice.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { StatsModule } from './modules/stats/stats.module';
     DatabaseModule,
     HealthModule,
     LlmModule,
+    VoiceModule,
     SessionsModule,
     PatientsModule,
     KnowledgeModule,

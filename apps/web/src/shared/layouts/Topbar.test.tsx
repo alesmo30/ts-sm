@@ -18,7 +18,7 @@ describe('Topbar', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Dr')).toBeInTheDocument();
+    expect(screen.getByLabelText('Vista médico')).toBeInTheDocument();
     expect(screen.getByText('Hola Doc')).toBeInTheDocument();
     expect(screen.getByText('Cambiar a paciente')).toBeInTheDocument();
   });

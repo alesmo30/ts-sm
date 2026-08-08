@@ -5,8 +5,10 @@ import { LlmPort } from '../llm/llm.port';
 import type { LlmMessage } from '../llm/llm.types';
 import { LlmMetricsService } from '../llm/metrics';
 import { SessionsService } from '../sessions/sessions.service';
+import { PhraseSegmenter, VoiceService, type SttSession } from '../voice/voice.service';
 
-import { SUMMARY_PROMPT, SYSTEM_PROMPT } from './conversation.prompt';
+import { GREETING_TRIGGER, SUMMARY_PROMPT, SYSTEM_PROMPT } from './conversation.prompt';
+import { sanitizeAssistantText } from './text-sanitizer';
 
 function turnToLlmMessage(turn: TranscriptTurn): LlmMessage {
   return {
@@ -23,18 +25,26 @@ export class ConversationService {
     private readonly sessionsService: SessionsService,
     private readonly llmPort: LlmPort,
     private readonly metrics: LlmMetricsService,
+    private readonly voiceService: VoiceService,
   ) {}
+
+  /** Abre el socket de STT para un turno hablado. Lanza si la voz no está configurada. */
+  startVoiceInput(): Promise<SttSession> {
+    return this.voiceService.startTranscription();
+  }
 
   async handleUserMessage(
     sessionId: string,
     text: string,
+    isVoice: boolean,
     emit: (event: ServerEvent) => void,
+    emitAudio?: (chunk: Buffer) => void,
   ): Promise<void> {
     const patientTurn = await this.sessionsService.addTurn(sessionId, {
       sessionId,
       who: 'patient',
       text,
-      isVoice: false,
+      isVoice,
       at: new Date(),
       citations: [],
     });
@@ -45,6 +55,58 @@ export class ConversationService {
       { role: 'system', content: SYSTEM_PROMPT },
       ...detail.turns.map(turnToLlmMessage),
     ];
+
+    await this.streamAssistantResponse(sessionId, messages, emit, emitAudio);
+  }
+
+  /** Turno inicial: el agente saluda primero, sin turno de paciente que lo preceda. */
+  async startConversation(
+    sessionId: string,
+    emit: (event: ServerEvent) => void,
+    emitAudio?: (chunk: Buffer) => void,
+  ): Promise<void> {
+    emit({ type: 'greeting_start' });
+
+    const messages: LlmMessage[] = [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: GREETING_TRIGGER },
+    ];
+
+    await this.streamAssistantResponse(sessionId, messages, emit, emitAudio);
+  }
+
+  private async streamAssistantResponse(
+    sessionId: string,
+    messages: LlmMessage[],
+    emit: (event: ServerEvent) => void,
+    emitAudio?: (chunk: Buffer) => void,
+  ): Promise<void> {
+    // Responde en voz siempre que la voz esté configurada, sin importar si el
+    // turno del paciente fue hablado o escrito — el agente habla y escribe a la vez.
+    const shouldSpeak = this.voiceService.isAvailable && !!emitAudio;
+    const segmenter = shouldSpeak ? new PhraseSegmenter() : null;
+    let spoke = false;
+
+    // Cola de síntesis encadenada: cada frase se sintetiza y emite en orden,
+    // pero SIN bloquear el loop de deltas de abajo. Bloquear ahí (await inline)
+    // era el bug real detrás de la sensación de "voz dudando": cada round-trip
+    // a Deepgram TTS frenaba también el texto, que debería fluir a la velocidad
+    // del LLM sin esperar a que el audio esté listo.
+    let ttsChain: Promise<void> = Promise.resolve();
+    const enqueuePhrase = (phrase: string): void => {
+      if (!emitAudio) return;
+      ttsChain = ttsChain.then(async () => {
+        try {
+          const audio = await this.voiceService.speak(phrase);
+          emit({ type: 'tts_start' });
+          emitAudio(audio);
+          emit({ type: 'tts_end' });
+          spoke = true;
+        } catch {
+          // Un fallo puntual de TTS no interrumpe la conversación: el texto ya llegó por delta.
+        }
+      });
+    };
 
     await this.metrics.runInScope(async () => {
       const start = Date.now();
@@ -58,8 +120,15 @@ export class ConversationService {
               this.metrics.markFirstToken();
               firstTokenSeen = true;
             }
-            assembled += delta.text;
-            emit({ type: 'delta', text: delta.text });
+            const clean = sanitizeAssistantText(delta.text);
+            assembled += clean;
+            emit({ type: 'delta', text: clean });
+
+            if (segmenter) {
+              for (const phrase of segmenter.push(clean)) {
+                enqueuePhrase(phrase);
+              }
+            }
           } else if (delta.type === 'done') {
             this.metrics.recordCall({
               provider: this.llmPort.providerName,
@@ -76,11 +145,20 @@ export class ConversationService {
           }
         }
 
+        if (segmenter) {
+          const remaining = segmenter.flush();
+          if (remaining) enqueuePhrase(remaining);
+        }
+        // El texto ya se emitió completo arriba, a la velocidad del LLM. Esta
+        // espera es solo para saber si algo llegó a sonar (isVoice del turno) y
+        // para no persistir el turno antes de que termine de vaciarse el audio.
+        await ttsChain;
+
         const assistantTurn = await this.sessionsService.addTurn(sessionId, {
           sessionId,
           who: 'assistant',
           text: assembled,
-          isVoice: false,
+          isVoice: spoke,
           at: new Date(),
           citations: [],
         });

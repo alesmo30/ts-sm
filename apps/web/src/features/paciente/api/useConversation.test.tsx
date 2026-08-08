@@ -140,8 +140,44 @@ describe('useConversation', () => {
     const parsed = JSON.parse(socket.sent[0]);
     expect(parsed).toEqual({
       event: 'user_message',
-      data: { type: 'user_message', sessionId: SESSION_ID, text: '¿cómo va mi recuperación?' },
+      data: { type: 'user_message', sessionId: SESSION_ID, text: '¿cómo va mi recuperación?', isVoice: false },
     });
+  });
+
+  it('send(text, true) marca isVoice:true en el evento serializado', async () => {
+    const { result } = renderHook(() => useConversation(SESSION_ID));
+
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0];
+
+    act(() => {
+      result.current.send('tengo dolor', true);
+    });
+
+    const parsed = JSON.parse(socket.sent[0]);
+    expect(parsed.data).toMatchObject({ isVoice: true });
+  });
+
+  it('stt_result dispara onTranscript sin enviar nada por el socket ni tocar los turnos', async () => {
+    const onTranscript = vi.fn();
+    const { result } = renderHook(() => useConversation(SESSION_ID, { onTranscript }));
+
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0];
+
+    act(() => {
+      socket.emit({ type: 'stt_status', state: 'transcribing' });
+    });
+    expect(result.current.sttStatus).toBe('transcribing');
+
+    act(() => {
+      socket.emit({ type: 'stt_result', text: 'tengo dolor en la incisión' });
+    });
+
+    expect(onTranscript).toHaveBeenCalledWith('tengo dolor en la incisión');
+    expect(result.current.sttStatus).toBe('idle');
+    expect(result.current.turns).toHaveLength(0);
+    expect(socket.sent).toHaveLength(0);
   });
 
   it('carga los turnos previos vía GET /sessions/:id al montar', async () => {

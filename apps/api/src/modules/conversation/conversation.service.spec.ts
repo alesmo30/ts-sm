@@ -5,10 +5,14 @@ import { LlmPort } from '../llm/llm.port';
 import type { LlmCompletion, LlmDelta, LlmMessage, LlmStructured } from '../llm/llm.types';
 import { LlmMetricsService } from '../llm/metrics';
 import { SessionsService } from '../sessions/sessions.service';
+import { VoiceService } from '../voice/voice.service';
 
 import { ConversationService } from './conversation.service';
 
 const SESSION_ID = '11111111-1111-1111-1111-111111111111';
+
+// Sin proveedor de voz configurado: isAvailable siempre false, igual que VOICE_PROVIDER=off.
+const fakeVoiceService = { isAvailable: false } as unknown as VoiceService;
 
 class FakePort implements LlmPort {
   readonly providerName = 'mock' as const;
@@ -88,6 +92,7 @@ describe('ConversationService', () => {
         LlmMetricsService,
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: port },
+        { provide: VoiceService, useValue: fakeVoiceService },
       ],
     }).compile();
 
@@ -95,7 +100,7 @@ describe('ConversationService', () => {
     const metrics = moduleRef.get(LlmMetricsService);
 
     const events: unknown[] = [];
-    await service.handleUserMessage(SESSION_ID, '¿cómo va mi recuperación?', (event) => events.push(event));
+    await service.handleUserMessage(SESSION_ID, '¿cómo va mi recuperación?', false, (event) => events.push(event));
 
     expect(sessionsService.addTurn).toHaveBeenCalledTimes(2);
     expect(sessionsService.addTurn.mock.calls[0][1]).toMatchObject({ who: 'patient', text: '¿cómo va mi recuperación?' });
@@ -115,6 +120,123 @@ describe('ConversationService', () => {
 
     expect(metrics.getSnapshot().totalCalls).toBe(1);
     expect(metrics.getSnapshot().recent[0].ok).toBe(true);
+  });
+
+  it('con isVoice y voz disponible, sintetiza por frase y persiste el turno del asistente con isVoice:true', async () => {
+    const savedTurns: TranscriptTurn[] = [];
+    let seq = 0;
+
+    const sessionsService = {
+      addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+        const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text, isVoice: input.isVoice });
+        savedTurns.push(turn);
+        return Promise.resolve(turn);
+      }),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+    };
+
+    class SentencePort extends FakePort {
+      async *stream(): AsyncIterable<LlmDelta> {
+        yield { type: 'text', text: 'Todo va bien con tu recuperación. ' };
+        yield { type: 'text', text: '¿Cómo te sientes hoy?' };
+        yield {
+          type: 'done',
+          completion: {
+            text: 'Todo va bien con tu recuperación. ¿Cómo te sientes hoy?',
+            model: 'mock',
+            usage: { inputTokens: 5, outputTokens: 3, costUsd: 0 },
+            latencyMs: 15,
+          },
+        };
+      }
+    }
+
+    const speakingVoiceService = {
+      isAvailable: true,
+      speak: jest.fn((text: string) => Promise.resolve(Buffer.from(text))),
+    } as unknown as VoiceService;
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: new SentencePort() },
+        { provide: VoiceService, useValue: speakingVoiceService },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    const events: unknown[] = [];
+    const audioChunks: Buffer[] = [];
+
+    await service.handleUserMessage(
+      SESSION_ID,
+      'hola',
+      true,
+      (event) => events.push(event),
+      (chunk) => audioChunks.push(chunk),
+    );
+
+    expect(speakingVoiceService.speak).toHaveBeenCalledTimes(2);
+    expect(audioChunks).toHaveLength(2);
+    // La síntesis ya no bloquea el loop de deltas (ver comentario en el
+    // service): el orden relativo entre 'delta' y 'tts_*' no está garantizado,
+    // solo que turn_saved abre, done cierra, y todo lo demás pasa en el medio.
+    const types = events.map((event) => (event as { type: string }).type);
+    expect(types[0]).toBe('turn_saved');
+    expect(types[types.length - 1]).toBe('done');
+    expect(types.filter((t) => t === 'delta')).toHaveLength(2);
+    expect(types.filter((t) => t === 'tts_start')).toHaveLength(2);
+    expect(types.filter((t) => t === 'tts_end')).toHaveLength(2);
+    expect(sessionsService.addTurn.mock.calls[1][1]).toMatchObject({ who: 'assistant', isVoice: true });
+  });
+
+  it('sintetiza en voz la respuesta aunque el paciente haya escrito el mensaje (isVoice:false)', async () => {
+    const savedTurns: TranscriptTurn[] = [];
+    let seq = 0;
+
+    const sessionsService = {
+      addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+        const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text, isVoice: input.isVoice });
+        savedTurns.push(turn);
+        return Promise.resolve(turn);
+      }),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+    };
+
+    const speakingVoiceService = {
+      isAvailable: true,
+      speak: jest.fn((text: string) => Promise.resolve(Buffer.from(text))),
+    } as unknown as VoiceService;
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: new FakePort() },
+        { provide: VoiceService, useValue: speakingVoiceService },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    const audioChunks: Buffer[] = [];
+
+    // isVoice=false (el paciente escribió), pero se pasa emitAudio igual —
+    // así lo hace el gateway ahora para el camino de texto.
+    await service.handleUserMessage(
+      SESSION_ID,
+      'hola, escrito',
+      false,
+      () => {},
+      (chunk) => audioChunks.push(chunk),
+    );
+
+    expect(speakingVoiceService.speak).toHaveBeenCalled();
+    expect(audioChunks.length).toBeGreaterThan(0);
+    expect(sessionsService.addTurn.mock.calls[0][1]).toMatchObject({ who: 'patient', isVoice: false });
+    expect(sessionsService.addTurn.mock.calls[1][1]).toMatchObject({ who: 'assistant', isVoice: true });
   });
 
   it('emite un evento error y no rompe si el puerto falla', async () => {
@@ -141,13 +263,14 @@ describe('ConversationService', () => {
         LlmMetricsService,
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FailingPort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
       ],
     }).compile();
 
     const service = moduleRef.get(ConversationService);
     const events: unknown[] = [];
 
-    await service.handleUserMessage(SESSION_ID, 'hola', (event) => events.push(event));
+    await service.handleUserMessage(SESSION_ID, 'hola', false, (event) => events.push(event));
 
     expect(sessionsService.addTurn).toHaveBeenCalledTimes(1);
     expect(events.map((event) => (event as { type: string }).type)).toEqual(['turn_saved', 'error']);
@@ -173,6 +296,7 @@ describe('ConversationService', () => {
         LlmMetricsService,
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FakePort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
       ],
     }).compile();
 
@@ -209,6 +333,7 @@ describe('ConversationService', () => {
         LlmMetricsService,
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FailingCompletePort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
       ],
     }).compile();
 
@@ -239,6 +364,7 @@ describe('ConversationService', () => {
         LlmMetricsService,
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: port },
+        { provide: VoiceService, useValue: fakeVoiceService },
       ],
     }).compile();
 
@@ -266,6 +392,7 @@ describe('ConversationService', () => {
         LlmMetricsService,
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: port },
+        { provide: VoiceService, useValue: fakeVoiceService },
       ],
     }).compile();
 

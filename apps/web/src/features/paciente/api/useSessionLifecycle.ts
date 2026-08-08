@@ -16,6 +16,8 @@ export interface UseSessionLifecycleResult {
   isClosing: boolean;
   start: () => Promise<Session>;
   close: () => Promise<Session | null>;
+  /** Vuelve a la pantalla de inicio sin llamar al backend — usar tras close(). */
+  reset: () => void;
 }
 
 export function useSessionLifecycle(): UseSessionLifecycleResult {
@@ -44,5 +46,7 @@ export function useSessionLifecycle(): UseSessionLifecycleResult {
     }
   }, [sessionId]);
 
-  return { sessionId, isStarting, isClosing, start, close };
+  const reset = useCallback(() => setSessionId(null), []);
+
+  return { sessionId, isStarting, isClosing, start, close, reset };
 }
