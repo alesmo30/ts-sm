@@ -9,11 +9,12 @@ interface ChatViewProps {
   streamingText: string;
   isStreaming: boolean;
   error: string | null;
+  isSynthesizingVoice?: boolean;
 }
 
 const NEAR_BOTTOM_THRESHOLD_PX = 80;
 
-export function ChatView({ turns, streamingText, isStreaming, error }: ChatViewProps) {
+export function ChatView({ turns, streamingText, isStreaming, error, isSynthesizingVoice }: ChatViewProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
@@ -38,7 +39,9 @@ export function ChatView({ turns, streamingText, isStreaming, error }: ChatViewP
 
       {isStreaming && streamingText === '' && <TypingIndicator />}
 
-      {isStreaming && streamingText !== '' && <Bubble who="assistant" text={streamingText} />}
+      {isStreaming && streamingText !== '' && (
+        <Bubble who="assistant" text={streamingText} processingAudio={isSynthesizingVoice} />
+      )}
 
       {error && (
         <p className="text-center text-[12.5px] text-danger" role="alert">

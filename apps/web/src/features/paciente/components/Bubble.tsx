@@ -5,9 +5,11 @@ interface BubbleProps {
   text: string;
   isVoice?: boolean;
   at?: Date;
+  /** true mientras el turno todavía no cierra y ya hay audio sintetizándose. */
+  processingAudio?: boolean;
 }
 
-export function Bubble({ who, text, isVoice, at }: BubbleProps) {
+export function Bubble({ who, text, isVoice, at, processingAudio }: BubbleProps) {
   // En /paciente el paciente es "yo": va a la derecha. Invertido respecto a la
   // vista médico (DESIGN.md §3.2, asimetría intencional — no unificar).
   const isOutgoing = who === 'patient';
@@ -21,12 +23,22 @@ export function Bubble({ who, text, isVoice, at }: BubbleProps) {
             : 'max-w-[76%] min-w-0 rounded-2xl rounded-bl-[4px] border border-border bg-surface-2 px-[15px] py-[11px] text-[14.5px] text-fg'
         }
       >
-        {isVoice && (
+        {isVoice && who === 'patient' && (
           <p className="mb-1 font-mono text-[10.5px] uppercase tracking-[0.03em] text-muted">
             🎙 Transcrito de audio
           </p>
         )}
         <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{text}</p>
+        {isVoice && who === 'assistant' && (
+          <p className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.03em] text-accent">
+            🔊 Leído en voz alta
+          </p>
+        )}
+        {processingAudio && !isVoice && (
+          <p className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.03em] text-accent">
+            🔊 Procesando audio<span className="[animation:blink_1.2s_infinite]">…</span>
+          </p>
+        )}
         {at && (
           <p className="mt-1 text-right font-mono text-[10.5px] text-tx-muted">{formatTime(at)}</p>
         )}

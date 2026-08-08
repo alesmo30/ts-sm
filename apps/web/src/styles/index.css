@@ -64,3 +64,31 @@ h3 {
     opacity: 1;
   }
 }
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 45%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 12px color-mix(in srgb, var(--danger) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 0%, transparent);
+  }
+}
+
+/* DESIGN.md §6: prefers-reduced-motion desactiva el pulso del micrófono y el
+   blink del typing. Redefinir los mismos keyframes con un estado final estático
+   los neutraliza en cualquier elemento que los use, sin tocar cada utility class. */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes blink {
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes pulse {
+    to {
+      box-shadow: 0 0 0 0 transparent;
+    }
+  }
+}
