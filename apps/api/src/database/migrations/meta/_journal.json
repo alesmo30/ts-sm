@@ -15,6 +15,13 @@
       "when": 1786055075994,
       "tag": "0001_salty_ravenous",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786239923478,
+      "tag": "0002_careless_wither",
+      "breakpoints": true
     }
   ]
 }
