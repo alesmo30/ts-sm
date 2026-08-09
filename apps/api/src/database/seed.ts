@@ -1,8 +1,24 @@
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { gunzipSync } from 'node:zlib';
+
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 
-import { kbState, priorityPatients, references, sessions, transcripts } from './schema';
+import type { KbCorpusDump } from './kb-dump';
+import { kbState, priorityPatients, referenceChunks, references, sessions, transcripts } from './schema';
+
+const KB_CORPUS_PATH = path.join(__dirname, 'seed-data', 'kb-corpus.json.gz');
+
+async function loadKbCorpus(): Promise<KbCorpusDump | null> {
+  if (!existsSync(KB_CORPUS_PATH)) {
+    return null;
+  }
+  const gzipped = await readFile(KB_CORPUS_PATH);
+  return JSON.parse(gunzipSync(gzipped).toString('utf-8')) as KbCorpusDump;
+}
 
 type SeedTurn = readonly [who: 'patient' | 'assistant', text: string];
 
@@ -213,6 +229,7 @@ async function seed(): Promise<void> {
 
   const pool = new Pool({ connectionString: databaseUrl });
   const db = drizzle(pool);
+  const kbCorpus = await loadKbCorpus();
 
   await db.transaction(async (tx) => {
     const sessionIdByCode = new Map<string, string>();
@@ -310,6 +327,36 @@ async function seed(): Promise<void> {
       .insert(kbState)
       .values({ id: 1, version: 1 })
       .onConflictDoNothing({ target: kbState.id });
+
+    if (kbCorpus && kbCorpus.references.length > 0) {
+      await tx
+        .insert(references)
+        .values(
+          kbCorpus.references.map((row) => ({
+            ...row,
+            addedAt: new Date(row.addedAt),
+          })),
+        )
+        .onConflictDoNothing({ target: references.name });
+    }
+
+    if (kbCorpus && kbCorpus.referenceChunks.length > 0) {
+      await tx
+        .insert(referenceChunks)
+        .values(
+          kbCorpus.referenceChunks.map((row) => ({
+            id: row.id,
+            referenceId: row.referenceId,
+            seq: row.seq,
+            text: row.text,
+            sourceText: row.sourceText,
+            lang: row.lang,
+            translated: row.translated,
+            embedding: row.embedding,
+          })),
+        )
+        .onConflictDoNothing({ target: referenceChunks.id });
+    }
   });
 
   await pool.end();

@@ -22,7 +22,14 @@ export class RetrievalService {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) {}
 
   async search(query: string, k: number = DEFAULT_TOP_K): Promise<Citation[]> {
-    const tsQuery = sql`plainto_tsquery('spanish', ${query})`;
+    // plainto_tsquery une los términos con AND: con la consulta enriquecida
+    // (turno del asistente + texto del paciente, ver conversation.service.ts)
+    // eso exige que TODOS los términos aparezcan en un mismo chunk, lo que en
+    // la práctica nunca matchea nada más allá de la primera pregunta corta.
+    // Se reescribe el AND (' & ') a OR (' | ') conservando el stemming en
+    // español que ya hizo plainto_tsquery — ts_rank sigue premiando los
+    // chunks que matchean más términos.
+    const tsQuery = sql`regexp_replace(plainto_tsquery('spanish', ${query})::text, ' & ', ' | ', 'g')::tsquery`;
     const rank = sql<number>`ts_rank(${referenceChunks.tsv}, ${tsQuery})`;
 
     const rows = await this.db
