@@ -102,6 +102,19 @@ El driver `openai` no sabe que está hablando con Groq; solo usa el `baseURL` co
 
 **Advertencia (R0.1 de `REGLAS.md`):** el `.env` que se entrega, el README y el video de demo deben apuntar al modelo obligatorio anunciado el 7 de agosto de 2026 — nunca a otro proveedor como fallback ni "solo para probar". Verificar con `GET /llm/health` antes de grabar cualquier entregable.
 
+## Base de conocimiento (RAG)
+
+El corpus clínico (107 PDFs del kit del reto, español e inglés mezclados) no se commitea — ver `specs/07-rag-y-citas-trazables.md`. Flujo completo, de cero a base sembrada:
+
+```bash
+pnpm dataset:fetch          # clona TechSphere2026/ParticipantArtifacts en dataset-reto/
+pnpm --filter api kb:ingest    # extrae PDFs, detecta idioma, fragmenta, llena references + reference_chunks
+pnpm --filter api kb:translate # traduce chunks en inglés vía LlmPort — reanudable, cache-first en database/kb-cache/
+pnpm --filter api kb:dump      # vuelca references + reference_chunks a database/seed-data/kb-corpus.json.gz
+```
+
+`kb-corpus.json.gz` y `database/kb-cache/` van commiteados: `docker compose up` los carga vía `seed.ts`, sin correr ingesta ni traducción en el arranque. `KNOWLEDGE_LOCAL_DIR` (`.env.example`) apunta a `dataset-reto/dataset/textos`, solo lo usan los scripts `kb:*`, nunca el runtime de la API.
+
 ## Estructura
 
 ```

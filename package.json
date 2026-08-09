@@ -15,7 +15,8 @@
     "format": "prettier --write .",
     "typecheck": "pnpm -r exec tsc --noEmit",
     "docker:up": "docker compose up",
-    "seed": "pnpm --filter api seed"
+    "seed": "pnpm --filter api seed",
+    "dataset:fetch": "test -d dataset-reto || git clone --depth 1 https://github.com/TechSphere2026/ParticipantArtifacts.git dataset-reto"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
