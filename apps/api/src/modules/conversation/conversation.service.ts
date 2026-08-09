@@ -1,13 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { ServerEvent, Session, TranscriptTurn } from '@ts-sm/shared';
+import type { Citation, ServerEvent, Session, TranscriptTurn } from '@ts-sm/shared';
 
+import { RetrievalService } from '../knowledge/retrieval.service';
 import { LlmPort } from '../llm/llm.port';
 import type { LlmMessage } from '../llm/llm.types';
 import { LlmMetricsService } from '../llm/metrics';
 import { SessionsService } from '../sessions/sessions.service';
 import { PhraseSegmenter, VoiceService, type SttSession } from '../voice/voice.service';
 
-import { GREETING_TRIGGER, SUMMARY_PROMPT, SYSTEM_PROMPT } from './conversation.prompt';
+import { GREETING_TRIGGER, SUMMARY_PROMPT, buildSystemPrompt } from './conversation.prompt';
 import { sanitizeAssistantText } from './text-sanitizer';
 
 function turnToLlmMessage(turn: TranscriptTurn): LlmMessage {
@@ -26,6 +27,7 @@ export class ConversationService {
     private readonly llmPort: LlmPort,
     private readonly metrics: LlmMetricsService,
     private readonly voiceService: VoiceService,
+    private readonly retrievalService: RetrievalService,
   ) {}
 
   /** Abre el socket de STT para un turno hablado. Lanza si la voz no está configurada. */
@@ -51,12 +53,20 @@ export class ConversationService {
     emit({ type: 'turn_saved', turn: patientTurn });
 
     const detail = await this.sessionsService.getDetail(sessionId);
+
+    // La última pregunta del asistente aporta términos clínicos que el
+    // paciente no siempre usa (ver riesgos de ts_rank en specs/07).
+    const lastAssistantTurn = [...detail.turns].reverse().find((turn) => turn.who === 'assistant');
+    const retrievalQuery = [lastAssistantTurn?.text, text].filter(Boolean).join(' ');
+    const citations = await this.retrievalService.search(retrievalQuery);
+    this.logger.log(`retrieval query="${retrievalQuery}" citations=${citations.length}`);
+
     const messages: LlmMessage[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: buildSystemPrompt(citations) },
       ...detail.turns.map(turnToLlmMessage),
     ];
 
-    await this.streamAssistantResponse(sessionId, messages, emit, emitAudio);
+    await this.streamAssistantResponse(sessionId, messages, emit, emitAudio, citations);
   }
 
   /** Turno inicial: el agente saluda primero, sin turno de paciente que lo preceda. */
@@ -68,7 +78,7 @@ export class ConversationService {
     emit({ type: 'greeting_start' });
 
     const messages: LlmMessage[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: buildSystemPrompt([]) },
       { role: 'user', content: GREETING_TRIGGER },
     ];
 
@@ -80,6 +90,7 @@ export class ConversationService {
     messages: LlmMessage[],
     emit: (event: ServerEvent) => void,
     emitAudio?: (chunk: Buffer) => void,
+    citations: Citation[] = [],
   ): Promise<void> {
     // Responde en voz siempre que la voz esté configurada, sin importar si el
     // turno del paciente fue hablado o escrito — el agente habla y escribe a la vez.
@@ -160,7 +171,7 @@ export class ConversationService {
           text: assembled,
           isVoice: spoke,
           at: new Date(),
-          citations: [],
+          citations,
         });
         emit({ type: 'done', turn: assistantTurn });
       } catch (error) {

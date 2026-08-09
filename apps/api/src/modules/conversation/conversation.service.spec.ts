@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import type { CreateTranscriptTurnInput, Session, SessionDetail, TranscriptTurn } from '@ts-sm/shared';
 
+import { RetrievalService } from '../knowledge/retrieval.service';
 import { LlmPort } from '../llm/llm.port';
 import type { LlmCompletion, LlmDelta, LlmMessage, LlmStructured } from '../llm/llm.types';
 import { LlmMetricsService } from '../llm/metrics';
@@ -13,6 +14,10 @@ const SESSION_ID = '11111111-1111-1111-1111-111111111111';
 
 // Sin proveedor de voz configurado: isAvailable siempre false, igual que VOICE_PROVIDER=off.
 const fakeVoiceService = { isAvailable: false } as unknown as VoiceService;
+
+function fakeRetrievalService(citations: unknown[] = []) {
+  return { search: jest.fn(() => Promise.resolve(citations)) } as unknown as RetrievalService;
+}
 
 class FakePort implements LlmPort {
   readonly providerName = 'mock' as const;
@@ -93,6 +98,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: port },
         { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
@@ -120,6 +126,62 @@ describe('ConversationService', () => {
 
     expect(metrics.getSnapshot().totalCalls).toBe(1);
     expect(metrics.getSnapshot().recent[0].ok).toBe(true);
+  });
+
+  it('enriquece la consulta al retrieval con la última pregunta del asistente y persiste las citas en el turno del asistente', async () => {
+    const savedTurns: TranscriptTurn[] = [
+      fakeTurn({ seq: 0, who: 'assistant', text: '¿Sientes fiebre o dolor intenso en la zona operada?' }),
+    ];
+    let seq = savedTurns.length;
+
+    const sessionsService = {
+      addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+        const turn = fakeTurn({
+          seq: seq++,
+          who: input.who,
+          text: input.text,
+          isVoice: input.isVoice,
+          citations: input.citations,
+        });
+        savedTurns.push(turn);
+        return Promise.resolve(turn);
+      }),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+    };
+
+    const fakeCitations = [
+      {
+        docId: '33333333-3333-3333-3333-333333333333',
+        docName: 'guia-colecistectomia.pdf',
+        chunkId: '44444444-4444-4444-4444-444444444444',
+        version: 1,
+        score: 0.5,
+        snippet: 'Reposo relativo por 48 horas.',
+      },
+    ];
+    const retrievalService = fakeRetrievalService(fakeCitations);
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: new FakePort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: retrievalService },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    await service.handleUserMessage(SESSION_ID, 'no, ningún síntoma raro', false, () => {});
+
+    expect(retrievalService.search).toHaveBeenCalledWith(
+      '¿Sientes fiebre o dolor intenso en la zona operada? no, ningún síntoma raro',
+    );
+
+    // El turno del paciente nunca lleva citas; solo el del asistente.
+    expect(sessionsService.addTurn.mock.calls[0][1]).toMatchObject({ who: 'patient', citations: [] });
+    expect(sessionsService.addTurn.mock.calls[1][1]).toMatchObject({ who: 'assistant', citations: fakeCitations });
   });
 
   it('con isVoice y voz disponible, sintetiza por frase y persiste el turno del asistente con isVoice:true', async () => {
@@ -163,6 +225,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new SentencePort() },
         { provide: VoiceService, useValue: speakingVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
@@ -217,6 +280,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FakePort() },
         { provide: VoiceService, useValue: speakingVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
@@ -264,6 +328,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FailingPort() },
         { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
@@ -297,6 +362,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FakePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
@@ -334,6 +400,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FailingCompletePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
@@ -365,6 +432,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: port },
         { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
@@ -393,6 +461,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: port },
         { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 

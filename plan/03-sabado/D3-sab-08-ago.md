@@ -174,3 +174,24 @@ Las métricas salen **automáticas** (RA.9), no en una hoja de cálculo a mano.
 ## Nota de cierre
 
 Grabar hoy mismo un video corto de la demo killer, aunque sea con el celular. Si mañana algo se rompe, ya existe la evidencia de que funcionó.
+
+---
+
+## Addendum — hallazgo durante SPEC 07 (2026-08-08)
+
+Al implementar SPEC 07 (RAG y citas trazables) se descubrió que `dataset-reto/dataset/` trae, además de los 107 PDFs en `textos/`, **cuatro `.xlsx` que no son parte del corpus RAG**:
+
+| Archivo | Contenido |
+|---|---|
+| `dataset_final.xlsx` | 3992 filas de diálogos paciente↔agente sintéticos con `label_ground_truth` (verde/amarillo/rojo), generados por `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` |
+| `perfiles_pacientes_co.xlsx` | 40 perfiles demográficos sintéticos (nombre, dirección, ciudad, EPS, cédula) |
+| `perfiles_clinicos_pacientes_silver_contest.xlsx` | 40 perfiles clínicos vía Synthea (procedimiento, fecha cirugía, edad, comorbilidades, complicación) |
+| `trayectorias_postop_silver.xlsx` | 160 filas de trayectorias post-operatorias día a día (dolor NRS, fiebre, movilidad, herida, apetito, sueño) |
+
+**Por qué no entran en SPEC 07:** son datos de *pacientes/diálogos sintéticos*, no conocimiento clínico autoritativo citable — meterlos al corpus RAG sería el agente citándose contenido inventado por otro modelo, justo lo que REGLAS.md prohíbe.
+
+**Uso más probable para un spec futuro:**
+- `dataset_final.xlsx` → dataset de **evaluación/benchmark**: correr las preguntas del paciente contra el agente real y comparar la severidad detectada contra `label_ground_truth`. Encaja con el "Triage de dos capas" (T2 arriba) que quedó fuera del plan renovado tras el cambio de LLM.
+- `perfiles_pacientes_co.xlsx` + `perfiles_clinicos_pacientes_silver_contest.xlsx` + `trayectorias_postop_silver.xlsx` → semilla de sesiones más realistas (hoy `seed.ts` tiene solo 5 sesiones a mano), o dataset base para poblar pacientes prioritarios con casos variados.
+
+No se abrió spec nuevo para esto — queda registrado acá para retomarlo cuando corresponda.
