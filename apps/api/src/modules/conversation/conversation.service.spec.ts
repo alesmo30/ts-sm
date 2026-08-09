@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import type { CreateTranscriptTurnInput, Session, SessionDetail, TranscriptTurn } from '@ts-sm/shared';
 
+import { RetrievalService } from '../knowledge/retrieval.service';
 import { LlmPort } from '../llm/llm.port';
 import type { LlmCompletion, LlmDelta, LlmMessage, LlmStructured } from '../llm/llm.types';
 import { LlmMetricsService } from '../llm/metrics';
@@ -13,6 +14,10 @@ const SESSION_ID = '11111111-1111-1111-1111-111111111111';
 
 // Sin proveedor de voz configurado: isAvailable siempre false, igual que VOICE_PROVIDER=off.
 const fakeVoiceService = { isAvailable: false } as unknown as VoiceService;
+
+function fakeRetrievalService(citations: unknown[] = []) {
+  return { search: jest.fn(() => Promise.resolve(citations)) } as unknown as RetrievalService;
+}
 
 class FakePort implements LlmPort {
   readonly providerName = 'mock' as const;
@@ -93,6 +98,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: port },
         { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
@@ -163,6 +169,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new SentencePort() },
         { provide: VoiceService, useValue: speakingVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
@@ -217,6 +224,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FakePort() },
         { provide: VoiceService, useValue: speakingVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
@@ -264,6 +272,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FailingPort() },
         { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
@@ -297,6 +306,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FakePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
@@ -334,6 +344,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FailingCompletePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
@@ -365,6 +376,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: port },
         { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
@@ -393,6 +405,7 @@ describe('ConversationService', () => {
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: port },
         { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
       ],
     }).compile();
 
