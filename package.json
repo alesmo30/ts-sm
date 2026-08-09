@@ -17,7 +17,9 @@
     "docker:up": "docker compose up",
     "seed": "pnpm --filter api seed",
     "dataset:fetch": "test -d dataset-reto || git clone --depth 1 https://github.com/TechSphere2026/ParticipantArtifacts.git dataset-reto",
-    "kb:ingest": "pnpm --filter api kb:ingest"
+    "kb:ingest": "pnpm --filter api kb:ingest",
+    "kb:translate": "pnpm --filter api kb:translate",
+    "kb:dump": "pnpm --filter api kb:dump"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
