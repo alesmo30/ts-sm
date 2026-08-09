@@ -1,6 +1,6 @@
 # SPEC 07 — RAG clínico con citas trazables
 
-> **Estado:** Aprobado (2026-08-08)
+> **Estado:** Implementado (2026-08-08)
 > **Depende de:** SPEC 02, SPEC 04, SPEC 05
 > **Fecha:** 2026-08-08
 > **Objetivo:** Que cada respuesta clínica del agente se construya sobre fragmentos recuperados del corpus real y quede rastreable hasta el documento que la sustenta, usando búsqueda de texto completo en español de Postgres.
