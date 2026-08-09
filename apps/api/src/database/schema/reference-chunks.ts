@@ -1,7 +1,7 @@
 import { boolean, customType, index, integer, text, uuid } from 'drizzle-orm/pg-core';
 
-import { references } from './references';
 import { appSchema } from './pg-schema';
+import { references } from './references';
 
 const tsvector = customType<{ data: string }>({
   dataType() {

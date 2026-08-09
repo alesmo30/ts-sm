@@ -47,6 +47,15 @@ describe('chunkByParagraphs', () => {
     expect(chunks).toEqual(['Párrafo real.']);
   });
 
+  it('cae a partir por línea simple cuando no hay separadores de párrafo (texto tipo PDF)', () => {
+    const lines = Array.from({ length: 5 }, (_, i) => `línea ${i} `.repeat(5)).join('\n');
+
+    const chunks = chunkByParagraphs(lines, 100, 10);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join('\n\n')).not.toHaveLength(0);
+  });
+
   it('devuelve arreglo vacío para texto vacío', () => {
     expect(chunkByParagraphs('', 1000, 10)).toEqual([]);
     expect(chunkByParagraphs('   \n\n  ', 1000, 10)).toEqual([]);
