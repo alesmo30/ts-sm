@@ -200,6 +200,12 @@ export class ConversationService {
         const messages: LlmMessage[] = [
           { role: 'system', content: SUMMARY_PROMPT },
           ...detail.turns.map(turnToLlmMessage),
+          // Cierre explícito en rol 'user': con la conversación terminando en un
+          // turno 'assistant' (el caso normal), algunos modelos —confirmado con
+          // Llama 3.3 70B en Groq— devuelven finish_reason:'stop' con content
+          // vacío si el último mensaje del array no es 'user'. Ver fricción de
+          // SPEC 04/plan/PLAN-RENOVADO-KIT.md sobre el cambio de modelo.
+          { role: 'user', content: 'Genera el resumen ahora, siguiendo las instrucciones anteriores.' },
         ];
 
         try {

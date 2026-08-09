@@ -33,3 +33,8 @@ coverage/
 
 # vite
 .vite/
+
+# dataset del reto (repo TechSphere2026/ParticipantArtifacts)
+# PDFs con derechos de terceros + 127MB: NUNCA se commitean.
+# Se pueblan con: pnpm dataset:fetch
+dataset-reto/

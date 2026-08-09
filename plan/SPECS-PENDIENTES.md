@@ -139,7 +139,7 @@ Construir los tres drivers (`mock`, `anthropic`, `openai`) detrás del `LlmPort`
 - Transporte `ws` nativo vía `@nestjs/platform-ws`, sin Socket.IO ni dependencia de cliente en `apps/web`.
 - El servidor es el único que escribe turnos; el cliente nunca llama `POST /sessions/:id/turns`.
 - Paciente de demo fijo en una constante del front, sin formulario (DESIGN.md §8 no define UI de alta).
-- Criterio de aceptación doble: funciona con `LLM_PROVIDER=mock` sin ninguna key, y se verifica en vivo contra Groq (`openai/gpt-oss-120b`).
+- Criterio de aceptación doble: funciona con `LLM_PROVIDER=mock` sin ninguna key, y se verificó en vivo contra Groq (`openai/gpt-oss-120b`, modelo vigente al momento de SPEC 05 — **superado el 2026-08-08**: `openai/gpt-oss-120b` es familia OpenAI, fuera de las familias permitidas por `docs/stack-tecnico.md` §1 del kit oficial. Modelo vigente ahora: `llama-3.3-70b-versatile` en Groq, familia Meta Llama. Ver `plan/PLAN-RENOVADO-KIT.md`).
 
 ---
 

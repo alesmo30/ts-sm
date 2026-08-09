@@ -93,7 +93,7 @@ Con `LLM_PROVIDER=mock` (el default) la API arranca sin ninguna key: cuatro resp
 
 ```bash
 LLM_PROVIDER=openai
-LLM_MODEL=openai/gpt-oss-120b
+LLM_MODEL=llama-3.3-70b-versatile
 OPENAI_API_KEY=gsk_...
 OPENAI_BASE_URL=https://api.groq.com/openai/v1
 ```
