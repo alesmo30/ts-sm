@@ -28,6 +28,10 @@ export function cosineSimilarity(a: number[], b: number[]): number {
  * embedContent y asyncBatchEmbedContent, que es un job asíncrono) — cada
  * texto se embebe con su propia petición.
  */
+export interface EmbedOptions {
+  outputDimensionality?: number; // sin especificar → 3072 (comportamiento actual, sin cambios)
+}
+
 @Injectable()
 export class EmbeddingClient {
   constructor(@Inject(EMBEDDING_CONFIG) private readonly config: EmbeddingConfig) {}
@@ -36,15 +40,16 @@ export class EmbeddingClient {
     return !!this.config.apiKey;
   }
 
-  embedBatch(texts: string[]): Promise<number[][]> {
-    return Promise.all(texts.map((text) => this.embedOne(text)));
+  embedBatch(texts: string[], options?: EmbedOptions): Promise<number[][]> {
+    return Promise.all(texts.map((text) => this.embedOne(text, options)));
   }
 
-  async embedOne(text: string): Promise<number[]> {
+  async embedOne(text: string, options?: EmbedOptions): Promise<number[]> {
     const url = `${GEMINI_API_BASE}/models/${this.config.model}:embedContent?key=${this.config.apiKey}`;
     const body = {
       model: `models/${this.config.model}`,
       content: { parts: [{ text }] },
+      ...(options?.outputDimensionality ? { outputDimensionality: options.outputDimensionality } : {}),
     };
 
     const response = await fetch(url, {

@@ -13,6 +13,8 @@ interface TopbarProps {
   leftExtra?: ReactNode;
   /** Acción adicional pegada al botón de cambiar de vista, ej. "Terminar conversación". */
   secondaryExtra?: ReactNode;
+  /** Slot junto al logo, ej. el botón de colapsar el sidenav en la vista médico. */
+  logoExtra?: ReactNode;
   onInterceptSwitch?: () => void;
 }
 
@@ -24,11 +26,13 @@ export function Topbar({
   switchTo,
   leftExtra,
   secondaryExtra,
+  logoExtra,
   onInterceptSwitch,
 }: TopbarProps) {
   return (
     <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-surface px-4 py-4 sm:px-7">
       <div className="flex min-w-0 items-center gap-3">
+        {logoExtra}
         <div
           className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] bg-accent-soft p-[6px]"
           aria-label={markLabel === 'Dr' ? 'Vista médico' : 'Vista paciente'}

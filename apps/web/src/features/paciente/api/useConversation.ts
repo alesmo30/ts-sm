@@ -15,8 +15,8 @@ export interface UseConversationOptions {
   onTranscript?: (text: string) => void;
   /** Nueva versión de la KB tras una ingesta o un cambio de estado activo/inactivo. */
   onKnowledgeUpdated?: (kbVersion: number) => void;
-  /** Bandera roja o petición explícita detectada por el agente. */
-  onEscalationStarted?: (reason: 'red_flag' | 'patient_request', countdownSeconds: number) => void;
+  /** Bandera roja, petición explícita o consentimiento a un vacío de conocimiento detectado por el agente. */
+  onEscalationStarted?: (reason: 'red_flag' | 'patient_request' | 'knowledge_gap', countdownSeconds: number) => void;
 }
 
 export interface UseConversationResult {

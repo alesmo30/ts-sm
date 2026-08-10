@@ -12,6 +12,7 @@ export function useSetReferenceActive() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['references'] });
       void queryClient.invalidateQueries({ queryKey: ['knowledge', 'state'] });
+      void queryClient.invalidateQueries({ queryKey: ['stats-counts'] });
     },
   });
 }

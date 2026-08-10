@@ -13,6 +13,13 @@ const vector768 = customType<{ data: number[] }>({
   dataType() {
     return 'vector(768)';
   },
+  // Sin esto, drizzle serializa number[] con la sintaxis de array nativo de
+  // Postgres ("{1,2,3}"), que pgvector rechaza — el tipo espera su propio
+  // formato de literal ("[1,2,3]"). Bug real encontrado en QA manual de SPEC 09:
+  // toda ingesta con GEMINI_API_KEY configurada fallaba al insertar el chunk.
+  toDriver(value: number[]): string {
+    return `[${value.join(',')}]`;
+  },
 });
 
 export const referenceChunks = appSchema.table(

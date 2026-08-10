@@ -81,7 +81,7 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('escalation_started'),
-    reason: z.enum(['red_flag', 'patient_request']),
+    reason: z.enum(['red_flag', 'patient_request', 'knowledge_gap']),
     countdownSeconds: z.number().int(),
   }),
 ]);

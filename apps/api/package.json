@@ -13,7 +13,8 @@
     "seed": "tsx src/database/seed.ts",
     "kb:ingest": "tsx src/database/kb-ingest.ts",
     "kb:translate": "tsx src/database/kb-translate.ts",
-    "kb:dump": "tsx src/database/kb-dump.ts"
+    "kb:dump": "tsx src/database/kb-dump.ts",
+    "backfill-embeddings": "tsx src/database/backfill-embeddings.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
