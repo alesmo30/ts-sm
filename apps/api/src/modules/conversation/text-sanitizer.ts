@@ -17,6 +17,7 @@ export function sanitizeAssistantText(chunk: string): string {
 
 export const ESCALATION_MARKER = '[[ESCALAR]]';
 export const NO_REFERENCE_MARKER = '[[SIN_REFERENCIA]]';
+export const GROUPED_CONFIRMATION_MARKER = '[[CONFIRMACION_AGRUPADA]]';
 
 function longestMarkerPrefixSuffix(marker: string, text: string): number {
   const maxLen = Math.min(text.length, marker.length - 1);
@@ -92,6 +93,23 @@ export class NoReferenceMarkerFilter extends MarkerFilter {
   }
 
   get noReferenceDetected(): boolean {
+    return this.markerDetected;
+  }
+}
+
+/**
+ * SPEC 10 — el agente la emite cuando agrupa las áreas del guion clínico
+ * pendientes en una sola pregunta de confirmación ("entonces fiebre, herida,
+ * apetito y sueño, ¿todo sin novedad?"). Si el paciente confirma en el turno
+ * siguiente, las áreas todavía pendientes se marcan cubiertas por
+ * confirmación agrupada en vez de una por una.
+ */
+export class GroupedConfirmationMarkerFilter extends MarkerFilter {
+  constructor() {
+    super(GROUPED_CONFIRMATION_MARKER);
+  }
+
+  get groupedConfirmationDetected(): boolean {
     return this.markerDetected;
   }
 }

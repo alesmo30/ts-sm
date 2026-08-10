@@ -29,6 +29,13 @@
       "when": 1786301494062,
       "tag": "0003_whole_jetstream",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786397911326,
+      "tag": "0004_right_valeria_richards",
+      "breakpoints": true
     }
   ]
 }

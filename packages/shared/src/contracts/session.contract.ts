@@ -71,5 +71,6 @@ export const UpdateSessionSchema = z.object({
   status: SessionStatus.optional(),
   summary: z.string().nullable().optional(),
   closedAt: z.coerce.date().nullable().optional(),
+  structuredSummary: SessionSummarySchema.nullable().optional(),
 });
 export type UpdateSessionInput = z.infer<typeof UpdateSessionSchema>;
