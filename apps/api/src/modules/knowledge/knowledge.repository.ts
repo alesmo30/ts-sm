@@ -1,9 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 
 import { DRIZZLE_CLIENT } from '../../database/database.module';
 import type { DrizzleClient } from '../../database/drizzle.client';
 import { ingestJobs, kbState, referenceChunks, references } from '../../database/schema';
+import { EmbeddingClient } from '../embeddings/embedding.client';
+
+const SEMANTIC_EMBEDDING_DIM = 768;
 
 export interface ReferenceRow {
   id: string;
@@ -57,7 +60,12 @@ export interface FindReferencesOptions {
 
 @Injectable()
 export class KnowledgeRepository {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) {}
+  private readonly logger = new Logger(KnowledgeRepository.name);
+
+  constructor(
+    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient,
+    private readonly embeddingClient: EmbeddingClient,
+  ) {}
 
   async findReferences(options: FindReferencesOptions = {}): Promise<ReferenceRow[]> {
     const conditions = [
@@ -85,8 +93,35 @@ export class KnowledgeRepository {
     return row?.version ?? 1;
   }
 
+  /**
+   * Embebe cada chunk a 768 dim para la rama semántica de RetrievalService
+   * (SPEC 09). Fail-open por chunk, no por lote: un solo timeout de Gemini no
+   * debe tumbar la ingesta entera ni dejar sin embedding a los chunks que sí
+   * respondieron — ese chunk queda sin `embedding` hasta el próximo backfill.
+   */
+  private async embedChunksFailOpen(chunks: NewChunk[]): Promise<(number[] | null)[]> {
+    if (!this.embeddingClient.isAvailable) {
+      return chunks.map(() => null);
+    }
+
+    return Promise.all(
+      chunks.map(async (chunk) => {
+        try {
+          return await this.embeddingClient.embedOne(chunk.text, { outputDimensionality: SEMANTIC_EMBEDDING_DIM });
+        } catch (error) {
+          this.logger.error(
+            `Embedding de chunk falló, se guarda sin embedding: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return null;
+        }
+      }),
+    );
+  }
+
   /** Inserta la referencia y sus chunks e incrementa kb_state.version en una sola transacción. */
   async createReferenceWithChunks(input: CreateReferenceInput): Promise<CreateReferenceResult> {
+    const embeddings = await this.embedChunksFailOpen(input.chunks);
+
     return this.db.transaction(async (tx) => {
       const [reference] = await tx
         .insert(references)
@@ -110,6 +145,7 @@ export class KnowledgeRepository {
           sourceText: chunk.sourceText,
           lang: chunk.lang,
           translated: chunk.translated,
+          embedding: embeddings[seq],
         });
       }
 

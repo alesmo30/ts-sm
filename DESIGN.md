@@ -190,7 +190,11 @@ Padding `12px 14px`, radio `--radius`, icono 17px, gap 12px, numeración mono a 
 | Hover | texto `--fg`, fondo `--surface-2` |
 | **Activo** | texto `--accent`, fondo `--accent-soft`, borde `rgba(var(--accent-rgb),.3)` |
 
-Los cuatro ítems, en orden, con su numeración: `01 Dashboard de control` · `02 Pacientes con atención personalizada` · `03 Agregar conocimiento` · `04 Referencias`.
+Los cuatro ítems, en orden, con su numeración: `01 Atención prioritaria` · `02 Dashboard de control` · `03 Agregar conocimiento` · `04 Referencias`. Es la vista con la que abre el panel del médico — la que debe revisarse primero.
+
+El contador del ítem `Atención prioritaria` es una excepción a la numeración mono gris: cuando hay al menos un registro, se muestra como píldora `--danger` / `--on-danger` (`bg-danger text-on-danger`) en vez del `--tx-muted` normal, para llamar la atención del médico sobre casos sin atender.
+
+El sidenav es colapsable, abierto por defecto. El botón de colapso vive en el Topbar, junto al logo de Source Meridian (mismo tamaño 34×34 que el logo, `--surface-2` con borde `--border-mid`). Colapsado, el rail se reduce a solo íconos (72px de ancho) centrados, sin etiqueta ni contador; el ítem `Atención prioritaria` conserva la señal de urgencia como un punto rojo de 8px sobre el ícono cuando hay registros pendientes. El `title` de cada botón pasa a mostrar la etiqueta completa como tooltip.
 
 ### 4.3 Tabla
 
@@ -373,7 +377,7 @@ Se conserva literal el del prototipo. Español de Colombia, tono profesional sin
 | Topbar médico | `Hola Doc` / `Panel de sesiones del asistente de voz` |
 | Topbar paciente | `Hola Paciente` / `Asistente de voz — MeridianAsiste` |
 | Dashboard | `Dashboard de control` / `Todas las sesiones atendidas por el asistente de voz` |
-| Prioridad | `Pacientes con atención personalizada` / `Solicitada por el paciente o detectada por el asistente de voz` |
+| Prioridad | `Atención prioritaria` / `Solicitada por el paciente o detectada por el asistente de voz` |
 | Conocimiento | `Agregar conocimiento` / `Actualiza el RAG con texto crudo o documentos` |
 | Referencias | `Referencias` / `Documentos e indicaciones que alimentan el RAG del asistente` |
 | Panel inferior | `Detalle del registro seleccionado` / `Selecciona una sesión o un paciente para ver su información aquí.` |

@@ -6,7 +6,7 @@ import { SessionsService } from '../sessions/sessions.service';
 
 import { EscalationRepository } from './escalation.repository';
 
-export type EscalationReason = 'red_flag' | 'patient_request';
+export type EscalationReason = 'red_flag' | 'patient_request' | 'knowledge_gap';
 
 const INITIAL_OUTCOME = 'Escalada en curso: el paciente todavía no decide si continuar o cerrar.';
 const ACCEPTED_OUTCOME = 'Escalada aceptada: la sesión se cerró y el caso quedó en manos del médico.';
@@ -43,9 +43,14 @@ const EscalationSummarySchema = z.object({
 });
 
 function reasonToCaseNotes(reason: EscalationReason): string {
-  return reason === 'red_flag'
-    ? 'El agente detectó una posible bandera roja clínica durante la conversación.'
-    : 'El paciente pidió explícitamente ser remitido a un médico.';
+  switch (reason) {
+    case 'red_flag':
+      return 'El agente detectó una posible bandera roja clínica durante la conversación.';
+    case 'patient_request':
+      return 'El paciente pidió explícitamente ser remitido a un médico.';
+    case 'knowledge_gap':
+      return 'El asistente no tenía información para responder y el paciente aceptó que su pregunta pasara al médico.';
+  }
 }
 
 @Injectable()

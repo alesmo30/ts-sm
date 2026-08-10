@@ -7,9 +7,11 @@ interface ReferenceListProps {
   onOpen: (reference: Reference) => void;
   onToggleActive?: (reference: Reference) => void;
   isToggling?: boolean;
+  /** Muestra si cada fila es de la base o subida a mano — solo tiene sentido cuando la lista mezcla ambos orígenes. */
+  showOrigin?: boolean;
 }
 
-export function ReferenceList({ references, onOpen, onToggleActive, isToggling }: ReferenceListProps) {
+export function ReferenceList({ references, onOpen, onToggleActive, isToggling, showOrigin }: ReferenceListProps) {
   return (
     <ul className="flex flex-col gap-2">
       {references.map((reference) => (
@@ -35,6 +37,7 @@ export function ReferenceList({ references, onOpen, onToggleActive, isToggling }
                 </span>
                 <span className="block text-[12px] text-muted">
                   {formatDate(reference.addedAt)} · {formatBytes(reference.sizeBytes)}
+                  {showOrigin && (reference.origin === 'upload' ? ' · Subida por mí' : ' · Base')}
                   {!reference.active && ' · Deshabilitado'}
                 </span>
               </span>

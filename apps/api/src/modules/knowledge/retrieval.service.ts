@@ -1,25 +1,61 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Citation } from '@ts-sm/shared';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
 
 import { DRIZZLE_CLIENT } from '../../database/database.module';
 import type { DrizzleClient } from '../../database/drizzle.client';
 import { referenceChunks, references } from '../../database/schema';
+import { EmbeddingClient } from '../embeddings/embedding.client';
 
-const DEFAULT_TOP_K = 4;
+const DEFAULT_TOP_K = 4; // léxico, sin cambios
+const SEMANTIC_TOP_K = 6; // candidatos de la rama semántica antes de fusionar
+const SEMANTIC_EMBEDDING_DIM = 768;
 const SNIPPET_CHARS = 300;
 
+interface ScoredRow {
+  chunkId: string;
+  text: string;
+  docId: string;
+  docName: string;
+  version: number;
+  lexicalRank?: number;
+  semanticDistance?: number;
+}
+
 /**
- * Score aislado a propósito: hoy es solo la rama léxica (ts_rank). SPEC 09
- * le suma el término denso (similitud de embedding) en esta única función.
+ * Score aislado a propósito: cuando el chunk viene del corte léxico se usa
+ * ts_rank tal cual (comportamiento previo, sin cambios); cuando solo lo trajo
+ * la rama semántica nueva (SPEC 09) se usa 1 - distancia coseno (`<=>` de
+ * pgvector es distancia, no similitud). Un chunk que aparece en las dos ramas
+ * conserva el score léxico — CitationRelevanceService decide relevancia por
+ * su cuenta re-embebiendo la query contra el snippet, este score es solo
+ * informativo.
  */
-function computeScore(lexicalRank: number): number {
-  return lexicalRank;
+function computeScore(row: ScoredRow): number {
+  if (row.lexicalRank !== undefined) return row.lexicalRank;
+  if (row.semanticDistance !== undefined) return 1 - row.semanticDistance;
+  return 0;
+}
+
+function toCitation(row: ScoredRow): Citation {
+  return {
+    docId: row.docId,
+    docName: row.docName,
+    chunkId: row.chunkId,
+    version: row.version,
+    score: computeScore(row),
+    snippet: row.text.slice(0, SNIPPET_CHARS),
+  };
 }
 
 @Injectable()
 export class RetrievalService {
-  constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) {}
+  private readonly logger = new Logger(RetrievalService.name);
+
+  constructor(
+    @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient,
+    private readonly embeddingClient: EmbeddingClient,
+  ) {}
 
   async search(query: string, k: number = DEFAULT_TOP_K): Promise<Citation[]> {
     // plainto_tsquery une los términos con AND: con la consulta enriquecida
@@ -38,7 +74,7 @@ export class RetrievalService {
     // de coincidencia, no el volumen bruto de menciones.
     const rank = sql<number>`ts_rank(${referenceChunks.tsv}, ${tsQuery}, 2)`;
 
-    const rows = await this.db
+    const lexicalPromise = this.db
       .select({
         chunkId: referenceChunks.id,
         text: referenceChunks.text,
@@ -53,13 +89,66 @@ export class RetrievalService {
       .orderBy(desc(rank))
       .limit(k);
 
-    return rows.map((row) => ({
-      docId: row.docId,
-      docName: row.docName,
-      chunkId: row.chunkId,
-      version: row.version,
-      score: computeScore(Number(row.rank)),
-      snippet: row.text.slice(0, SNIPPET_CHARS),
-    }));
+    const semanticPromise = this.semanticCandidates(query, SEMANTIC_TOP_K);
+
+    const [lexicalRows, semanticRows] = await Promise.all([lexicalPromise, semanticPromise]);
+
+    // Unión + dedupe por chunkId: un chunk que gana en las dos ramas entra
+    // una sola vez, con el score léxico (ver computeScore). El pool completo
+    // (sin recortar a k) es lo que sigue a CitationRelevanceService.filterRelevant().
+    const merged = new Map<string, Citation>();
+    for (const row of lexicalRows) {
+      merged.set(row.chunkId, toCitation({ ...row, lexicalRank: Number(row.rank) }));
+    }
+    for (const row of semanticRows) {
+      if (merged.has(row.chunkId)) continue;
+      merged.set(row.chunkId, toCitation({ ...row, semanticDistance: Number(row.distance) }));
+    }
+
+    return [...merged.values()];
+  }
+
+  /**
+   * Rama semántica nueva de SPEC 09: embebe la consulta a 768 dim y busca por
+   * distancia coseno (`<=>`) contra chunks pre-embebidos de referencias
+   * activas. Fail-open: sin GEMINI_API_KEY, o si el embedding de la consulta
+   * falla, devuelve sin candidatos semánticos — el retrieval sigue funcionando
+   * solo con la rama léxica, igual que antes de este spec.
+   */
+  private async semanticCandidates(
+    query: string,
+    limit: number,
+  ): Promise<{ chunkId: string; text: string; docId: string; docName: string; version: number; distance: number }[]> {
+    if (!this.embeddingClient.isAvailable) {
+      return [];
+    }
+
+    let queryVector: number[];
+    try {
+      queryVector = await this.embeddingClient.embedOne(query, { outputDimensionality: SEMANTIC_EMBEDDING_DIM });
+    } catch (error) {
+      this.logger.error(
+        `Embedding de la consulta falló, se sigue solo con retrieval léxico: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return [];
+    }
+
+    const queryVectorLiteral = `[${queryVector.join(',')}]`;
+    const distance = sql<number>`${referenceChunks.embedding} <=> ${queryVectorLiteral}::vector`;
+
+    return this.db
+      .select({
+        chunkId: referenceChunks.id,
+        text: referenceChunks.text,
+        docId: references.id,
+        docName: references.name,
+        version: references.version,
+        distance,
+      })
+      .from(referenceChunks)
+      .innerJoin(references, eq(references.id, referenceChunks.referenceId))
+      .where(and(eq(references.active, true), isNotNull(referenceChunks.embedding)))
+      .orderBy(asc(distance))
+      .limit(limit);
   }
 }

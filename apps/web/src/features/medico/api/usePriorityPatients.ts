@@ -8,5 +8,6 @@ export function usePriorityPatients() {
   return useQuery({
     queryKey: ['priority-patients'],
     queryFn: () => apiClient.get('/patients/priority', z.array(PriorityPatientSchema)),
+    refetchInterval: 15_000,
   });
 }

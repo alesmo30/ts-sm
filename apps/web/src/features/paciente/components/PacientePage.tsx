@@ -41,6 +41,12 @@ export function PacientePage() {
   // solo llama setState en cada cambio de sessionId dispara un render extra
   // sin necesidad.
   const [escalationCountdownSeconds, setEscalationCountdownSeconds] = useState<number | null>(null);
+  // El servidor avisa la escalada apenas termina de generar el texto — no
+  // cuando el audio deja de sonar en el cliente. Guardamos los segundos
+  // pendientes y esperamos (ver efecto de espera más abajo, una vez existen
+  // audioPlayback/webSpeech) a que la voz realmente calle antes de montar la
+  // cuenta regresiva, para no interrumpir al agente a media frase.
+  const [pendingEscalationSeconds, setPendingEscalationSeconds] = useState<number | null>(null);
   const [escalationAlreadyShown, setEscalationAlreadyShown] = useState(false);
   const [endedByEscalation, setEndedByEscalation] = useState(false);
   const [lastSessionId, setLastSessionId] = useState(sessionId);
@@ -49,13 +55,17 @@ export function PacientePage() {
     setLastSessionId(sessionId);
     setEscalationAlreadyShown(false);
     setEscalationCountdownSeconds(null);
+    setPendingEscalationSeconds(null);
     setEndedByEscalation(false);
   }
 
-  function handleEscalationStarted(_reason: 'red_flag' | 'patient_request', countdownSeconds: number): void {
+  function handleEscalationStarted(
+    _reason: 'red_flag' | 'patient_request' | 'knowledge_gap',
+    countdownSeconds: number,
+  ): void {
     if (escalationAlreadyShown) return;
     setEscalationAlreadyShown(true);
-    setEscalationCountdownSeconds(countdownSeconds);
+    setPendingEscalationSeconds(countdownSeconds);
   }
 
   // Texto del composer, dueño de PacientePage (no de Composer): el mic
@@ -93,6 +103,7 @@ export function PacientePage() {
 
   async function handleEscalationExpire(): Promise<void> {
     setEscalationCountdownSeconds(null);
+    audioPlayback.stop();
     await close();
     setEndedByEscalation(true);
   }
@@ -138,6 +149,21 @@ export function PacientePage() {
     // servidor): mismo destino que el resultado de Deepgram, se acumula.
     onFinalTranscript: appendTranscript,
   });
+
+  // Espera de gracia antes de montar la cuenta regresiva de escalada: recién
+  // llegado el evento del servidor, el agente puede seguir hablando en el
+  // cliente (Deepgram sintetizando o el fallback local leyendo). Se arma el
+  // timeout de 5 s solo cuando las tres señales de voz están en falso, y
+  // cualquier actividad nueva durante la espera la reinicia.
+  const voiceIsActive = isStreaming || isSynthesizingVoice || audioPlayback.isPlaying || webSpeech.isSpeaking;
+  useEffect(() => {
+    if (pendingEscalationSeconds === null || voiceIsActive) return;
+    const timeout = setTimeout(() => {
+      setEscalationCountdownSeconds(pendingEscalationSeconds);
+      setPendingEscalationSeconds(null);
+    }, 5000);
+    return () => clearTimeout(timeout);
+  }, [pendingEscalationSeconds, voiceIsActive]);
 
   // Estado real de "el asistente está respondiendo": bloquea input, envío y
   // selector de velocidad hasta que termine de escribir Y de sonar, sea por

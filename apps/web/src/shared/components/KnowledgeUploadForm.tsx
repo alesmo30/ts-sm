@@ -1,5 +1,6 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { Paperclip, Upload } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { useCreateReference } from '../api/useCreateReference';
 import { useIngestJob } from '../api/useIngestJob';
@@ -15,6 +16,20 @@ export function KnowledgeUploadForm() {
 
   const createReference = useCreateReference();
   const { data: job } = useIngestJob(activeJobId);
+  const queryClient = useQueryClient();
+
+  // kb_state.version solo sube cuando la ingesta termina de verdad
+  // (createReferenceWithChunks, al final del pipeline) — invalidar al recibir
+  // el 202 del POST es prematuro, la fila ni existe todavía. Este es el punto
+  // real donde la versión (y el conteo de referencias) cambiaron en el server.
+  const notifiedJobIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (job?.stage !== 'Indexado' || notifiedJobIdRef.current === job.id) return;
+    notifiedJobIdRef.current = job.id;
+    void queryClient.invalidateQueries({ queryKey: ['references'] });
+    void queryClient.invalidateQueries({ queryKey: ['knowledge', 'state'] });
+    void queryClient.invalidateQueries({ queryKey: ['stats-counts'] });
+  }, [job, queryClient]);
 
   const canSubmitText = name.trim().length > 0 && body.trim().length > 0;
   const canSubmit = file !== null || canSubmitText;

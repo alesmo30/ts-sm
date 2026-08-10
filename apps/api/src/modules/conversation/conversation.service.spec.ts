@@ -160,8 +160,15 @@ describe('ConversationService', () => {
   });
 
   it('enriquece la consulta al retrieval con la última pregunta del asistente y persiste las citas en el turno del asistente', async () => {
+    // seq 0 es siempre el saludo inicial en producción — el fix de retrieval
+    // lo excluye de la consulta por diluir el embedding con texto genérico
+    // (ver bug reportado en QA manual). La pregunta clínica que sí debe
+    // enriquecer la consulta llega en un turno posterior (seq 2), como en la
+    // conversación real.
     const savedTurns: TranscriptTurn[] = [
-      fakeTurn({ seq: 0, who: 'assistant', text: '¿Sientes fiebre o dolor intenso en la zona operada?' }),
+      fakeTurn({ seq: 0, who: 'assistant', text: 'Hola, soy MeridianAsiste. ¿En qué te puedo ayudar hoy?' }),
+      fakeTurn({ seq: 1, who: 'patient', text: 'Tengo una duda sobre mi recuperación.' }),
+      fakeTurn({ seq: 2, who: 'assistant', text: '¿Sientes fiebre o dolor intenso en la zona operada?' }),
     ];
     let seq = savedTurns.length;
 
@@ -216,6 +223,258 @@ describe('ConversationService', () => {
     // El turno del paciente nunca lleva citas; solo el del asistente.
     expect(sessionsService.addTurn.mock.calls[0][1]).toMatchObject({ who: 'patient', citations: [] });
     expect(sessionsService.addTurn.mock.calls[1][1]).toMatchObject({ who: 'assistant', citations: fakeCitations });
+  });
+
+  it('no concatena el saludo inicial a la consulta de retrieval en el primer mensaje del paciente', async () => {
+    // Bug reportado en QA manual: el saludo (siempre seq 0) es texto genérico
+    // sin contenido clínico. Concatenarlo diluía el embedding de la consulta
+    // y tumbaba por debajo del umbral una cita que sí era relevante.
+    const savedTurns: TranscriptTurn[] = [
+      fakeTurn({ seq: 0, who: 'assistant', text: 'Hola, soy MeridianAsiste. ¿En qué te puedo ayudar hoy?' }),
+    ];
+    let seq = savedTurns.length;
+
+    const sessionsService = {
+      addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+        const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text, citations: input.citations });
+        savedTurns.push(turn);
+        return Promise.resolve(turn);
+      }),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+    };
+
+    const retrievalService = fakeRetrievalService([]);
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: EscalationService, useValue: fakeEscalationService() },
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: new FakePort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: retrievalService },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    await service.handleUserMessage(SESSION_ID, '¿Cómo debo cuidar la herida?', false, () => {});
+
+    expect(retrievalService.search).toHaveBeenCalledWith('¿Cómo debo cuidar la herida?');
+  });
+
+  it('no busca ni adjunta citas cuando el paciente se despide, aunque el turno anterior tenga vocabulario clínico', async () => {
+    const savedTurns: TranscriptTurn[] = [
+      fakeTurn({
+        seq: 0,
+        who: 'assistant',
+        text: 'Si tienes dolor en el área abdominal después de la cirugía, es normal. ¿Quieres comentarme algo más?',
+      }),
+    ];
+    let seq = savedTurns.length;
+
+    const sessionsService = {
+      addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+        const turn = fakeTurn({
+          seq: seq++,
+          who: input.who,
+          text: input.text,
+          isVoice: input.isVoice,
+          citations: input.citations,
+        });
+        savedTurns.push(turn);
+        return Promise.resolve(turn);
+      }),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+    };
+
+    const fakeCitations = [
+      {
+        docId: '55555555-5555-5555-5555-555555555555',
+        docName: 'colon-cancer-care.pdf',
+        chunkId: '66666666-6666-6666-6666-666666666666',
+        version: 1,
+        score: 0.5,
+        snippet: 'Fragmento sin relación real con la pregunta del paciente.',
+      },
+    ];
+    const retrievalService = fakeRetrievalService(fakeCitations);
+    const citationRelevance = fakeCitationRelevanceService();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: EscalationService, useValue: fakeEscalationService() },
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: new FakePort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: retrievalService },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: citationRelevance },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    await service.handleUserMessage(SESSION_ID, 'No, por ahora todo está muy bien así, muchas gracias. Hasta luego.', false, () => {});
+
+    expect(retrievalService.search).not.toHaveBeenCalled();
+    expect(citationRelevance.filterRelevant).not.toHaveBeenCalled();
+    expect(sessionsService.addTurn.mock.calls[1][1]).toMatchObject({ who: 'assistant', citations: [] });
+  });
+
+  describe('respaldo de multi-query (SPEC 09)', () => {
+    function makeSessionsService() {
+      const savedTurns: TranscriptTurn[] = [];
+      let seq = 0;
+      return {
+        savedTurns,
+        addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+          const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text, citations: input.citations });
+          savedTurns.push(turn);
+          return Promise.resolve(turn);
+        }),
+        getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+      };
+    }
+
+    class VariationsPort extends FakePort {
+      structured<T>(): Promise<LlmStructured<T>> {
+        return Promise.resolve({
+          data: {
+            variations: [
+              '¿qué cuidados debo tener con la herida?',
+              '¿cómo debo limpiar la herida?',
+              '¿qué hago para curar la herida?',
+            ],
+          } as unknown as T,
+          model: 'mock',
+          usage: { inputTokens: 5, outputTokens: 5, costUsd: 0 },
+          latencyMs: 10,
+          usedFallbackParser: false,
+        });
+      }
+    }
+
+    const relevantCitation = {
+      docId: '77777777-7777-7777-7777-777777777777',
+      docName: 'heridas-generales.txt',
+      chunkId: '88888888-8888-8888-8888-888888888888',
+      version: 1,
+      score: 0.8,
+      snippet: 'Mantén la herida limpia y seca.',
+    };
+
+    it('con 0 citas relevantes en el primer intento, genera 3 variaciones, corre la fusión híbrida por cada una + la original, dedupea, y filtra una sola vez', async () => {
+      const sessionsService = makeSessionsService();
+      const originalQuery = '¿cómo cuido la herida?';
+
+      const retrievalService = {
+        search: jest.fn((query: string) =>
+          Promise.resolve(query === originalQuery ? [] : [relevantCitation]),
+        ),
+      } as unknown as RetrievalService;
+
+      const citationRelevance = {
+        filterRelevant: jest
+          .fn()
+          .mockResolvedValueOnce([]) // primer intento: sin citas relevantes -> dispara el fallback
+          .mockResolvedValueOnce([relevantCitation]), // pase final sobre el pool unido
+      } as unknown as CitationRelevanceService;
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          ConversationService,
+          LlmMetricsService,
+          { provide: EscalationService, useValue: fakeEscalationService() },
+          { provide: SessionsService, useValue: sessionsService },
+          { provide: LlmPort, useValue: new VariationsPort() },
+          { provide: VoiceService, useValue: fakeVoiceService },
+          { provide: RetrievalService, useValue: retrievalService },
+          { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+          { provide: CitationRelevanceService, useValue: citationRelevance },
+        ],
+      }).compile();
+
+      const service = moduleRef.get(ConversationService);
+      await service.handleUserMessage(SESSION_ID, originalQuery, false, () => {});
+
+      // 1 búsqueda original + 3 variaciones
+      expect(retrievalService.search).toHaveBeenCalledTimes(4);
+      // 1 filtro en el primer intento + 1 filtro final sobre el pool unido — nunca uno por variación
+      expect(citationRelevance.filterRelevant).toHaveBeenCalledTimes(2);
+
+      const finalFilterCall = (citationRelevance.filterRelevant as jest.Mock).mock.calls[1];
+      // Las 3 variaciones traen el mismo chunk: el pool que llega al filtro final está deduplicado a 1.
+      expect(finalFilterCall[1]).toEqual([relevantCitation]);
+
+      expect(sessionsService.addTurn.mock.calls[1][1]).toMatchObject({
+        who: 'assistant',
+        citations: [relevantCitation],
+      });
+    });
+
+    it('con al menos 1 cita relevante en el primer intento, no llama a LlmPort.structured (el fallback no se activa)', async () => {
+      const sessionsService = makeSessionsService();
+      const retrievalService = fakeRetrievalService([relevantCitation]);
+      const citationRelevance = fakeCitationRelevanceService([relevantCitation]);
+      const port = new FakePort();
+      const structuredSpy = jest.spyOn(port, 'structured');
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          ConversationService,
+          LlmMetricsService,
+          { provide: EscalationService, useValue: fakeEscalationService() },
+          { provide: SessionsService, useValue: sessionsService },
+          { provide: LlmPort, useValue: port },
+          { provide: VoiceService, useValue: fakeVoiceService },
+          { provide: RetrievalService, useValue: retrievalService },
+          { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+          { provide: CitationRelevanceService, useValue: citationRelevance },
+        ],
+      }).compile();
+
+      const service = moduleRef.get(ConversationService);
+      await service.handleUserMessage(SESSION_ID, '¿cómo cuido la herida?', false, () => {});
+
+      expect(structuredSpy).not.toHaveBeenCalled();
+      expect(retrievalService.search).toHaveBeenCalledTimes(1);
+      expect(citationRelevance.filterRelevant).toHaveBeenCalledTimes(1);
+    });
+
+    it('fail-open: si LlmPort.structured() falla durante el fallback, la conversación sigue sin citas y sin error visible', async () => {
+      const sessionsService = makeSessionsService();
+      const retrievalService = fakeRetrievalService([]);
+      const citationRelevance = fakeCitationRelevanceService([]);
+      const port = new FakePort(); // structured() lanza por default
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          ConversationService,
+          LlmMetricsService,
+          { provide: EscalationService, useValue: fakeEscalationService() },
+          { provide: SessionsService, useValue: sessionsService },
+          { provide: LlmPort, useValue: port },
+          { provide: VoiceService, useValue: fakeVoiceService },
+          { provide: RetrievalService, useValue: retrievalService },
+          { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+          { provide: CitationRelevanceService, useValue: citationRelevance },
+        ],
+      }).compile();
+
+      const service = moduleRef.get(ConversationService);
+      const events: unknown[] = [];
+      await service.handleUserMessage(SESSION_ID, '¿cómo cuido la herida?', false, (event) => events.push(event));
+
+      // Solo se dispara el intento original + el intento de reformulación fallido — nunca una segunda búsqueda.
+      expect(retrievalService.search).toHaveBeenCalledTimes(1);
+      expect(citationRelevance.filterRelevant).toHaveBeenCalledTimes(1);
+      expect(events.some((event) => (event as { type: string }).type === 'error')).toBe(false);
+      expect(sessionsService.addTurn.mock.calls[1][1]).toMatchObject({ who: 'assistant', citations: [] });
+    });
   });
 
   it('oculta las citas del turno del asistente cuando el LLM emite [[SIN_REFERENCIA]]', async () => {
@@ -559,6 +818,111 @@ describe('ConversationService', () => {
 
     const service = moduleRef.get(ConversationService);
     const escalated = await service.handleUserMessage(SESSION_ID, 'hola, todo bien', false, () => {});
+
+    expect(escalated).toBe(false);
+    expect(escalationService.escalate).not.toHaveBeenCalled();
+  });
+
+  it('escala con reason knowledge_gap si el paciente acepta con un "sí" corto el ofrecimiento del turno anterior', async () => {
+    const savedTurns: TranscriptTurn[] = [];
+    let seq = 0;
+
+    const sessionsService = {
+      addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+        const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text });
+        savedTurns.push(turn);
+        return Promise.resolve(turn);
+      }),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+    };
+
+    // Primer turno: el LLM declara el límite de conocimiento y ofrece redirigir.
+    class NoReferencePort extends FakePort {
+      async *stream(): AsyncIterable<LlmDelta> {
+        yield { type: 'text', text: 'No tengo información confirmada. ¿Quieres que avise a tu médico?\n[[SIN_RE' };
+        yield { type: 'text', text: 'FERENCIA]]' };
+        yield {
+          type: 'done',
+          completion: {
+            text: 'No tengo información confirmada. ¿Quieres que avise a tu médico?\n[[SIN_REFERENCIA]]',
+            model: 'mock',
+            usage: { inputTokens: 5, outputTokens: 3, costUsd: 0 },
+            latencyMs: 10,
+          },
+        };
+      }
+    }
+
+    const escalationService = fakeEscalationService();
+    (escalationService.escalate as jest.Mock).mockResolvedValue(true);
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: EscalationService, useValue: escalationService },
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: new NoReferencePort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+
+    const firstTurnEscalated = await service.handleUserMessage(
+      SESSION_ID,
+      '¿puedo ducharme?',
+      false,
+      () => {},
+    );
+    expect(firstTurnEscalated).toBe(false);
+    expect(escalationService.escalate).not.toHaveBeenCalled();
+
+    // Segundo turno, mismo service (mismo estado en memoria): el paciente
+    // responde "sí" — eso debe escalar aunque el LLM no vuelva a emitir
+    // [[ESCALAR]] ni el backstop de embeddings se dispare.
+    const secondTurnEscalated = await service.handleUserMessage(SESSION_ID, 'sí, por favor', false, () => {});
+
+    expect(secondTurnEscalated).toBe(true);
+    expect(escalationService.escalate).toHaveBeenCalledWith(SESSION_ID, 'knowledge_gap');
+  });
+
+  it('no escala un "sí" corto si no hubo un vacío de conocimiento en el turno anterior', async () => {
+    const savedTurns: TranscriptTurn[] = [];
+    let seq = 0;
+
+    const sessionsService = {
+      addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+        const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text });
+        savedTurns.push(turn);
+        return Promise.resolve(turn);
+      }),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+    };
+
+    const escalationService = fakeEscalationService();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: EscalationService, useValue: escalationService },
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: new FakePort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+
+    await service.handleUserMessage(SESSION_ID, 'hola, todo bien', false, () => {});
+    const escalated = await service.handleUserMessage(SESSION_ID, 'sí', false, () => {});
 
     expect(escalated).toBe(false);
     expect(escalationService.escalate).not.toHaveBeenCalled();

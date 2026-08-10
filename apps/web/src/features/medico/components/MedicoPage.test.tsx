@@ -31,7 +31,7 @@ function mockFetchByPath() {
     if (url.includes('/stats/counts')) {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ sessions: 1, priorityPatients: 0, references: 0 }),
+        json: () => Promise.resolve({ sessions: 1, priorityPatients: 0, references: 0, uploads: 0 }),
       });
     }
     if (url.includes('/sessions/')) {
@@ -70,6 +70,8 @@ describe('MedicoPage — selección de fila', () => {
     vi.stubGlobal('fetch', mockFetchByPath());
 
     renderMedicoPage();
+
+    fireEvent.click(await screen.findByText('Dashboard de control'));
 
     const row = await screen.findByText('SES-4821');
     fireEvent.click(row);

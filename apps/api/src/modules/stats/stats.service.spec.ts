@@ -16,7 +16,7 @@ describe('StatsService', () => {
 
   it('devuelve los conteos del repositorio', async () => {
     const { service, repository } = await setup();
-    const row: StatsCountsRow = { sessions: 12, priorityPatients: 3, references: 7 };
+    const row: StatsCountsRow = { sessions: 12, priorityPatients: 3, references: 7, uploads: 4 };
     repository.getCounts.mockResolvedValue(row);
 
     const result = await service.getCounts();

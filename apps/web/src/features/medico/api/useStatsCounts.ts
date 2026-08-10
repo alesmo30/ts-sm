@@ -7,5 +7,6 @@ export function useStatsCounts() {
   return useQuery({
     queryKey: ['stats-counts'],
     queryFn: () => apiClient.get('/stats/counts', StatsCountsSchema),
+    refetchInterval: 15_000,
   });
 }
