@@ -14,6 +14,10 @@ export const references = appSchema.table(
     version: integer('version').notNull().default(1),
     chunks: integer('chunks').notNull().default(0),
     body: text('body').notNull(),
+    origin: text('origin', { enum: ['corpus', 'upload'] }).notNull().default('corpus'),
   },
-  (table) => [index('references_active_idx').on(table.active)],
+  (table) => [
+    index('references_active_idx').on(table.active),
+    index('references_origin_idx').on(table.origin),
+  ],
 );

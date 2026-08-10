@@ -44,6 +44,10 @@ function sessionDetailFixture(turns: unknown[] = []) {
     summary: null,
     structuredSummary: null,
     createdAt: '2026-08-06T10:00:00.000Z',
+    email: 'paciente@example.com',
+    phone: '3001234567',
+    closedAt: null,
+    lastActivityAt: '2026-08-06T10:00:00.000Z',
     turns,
   };
 }

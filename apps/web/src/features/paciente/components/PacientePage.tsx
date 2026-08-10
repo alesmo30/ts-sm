@@ -2,6 +2,10 @@ import { FileText, LogOut } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { useKbState } from '../../../shared/api/useKbState';
+import { KbVersionChip } from '../../../shared/components/KbVersionChip';
+import { KnowledgeUploadForm } from '../../../shared/components/KnowledgeUploadForm';
+import { Modal } from '../../../shared/components/Modal';
 import { Topbar } from '../../../shared/layouts/Topbar';
 import { useConversation } from '../api/useConversation';
 import { useSessionLifecycle } from '../api/useSessionLifecycle';
@@ -13,15 +17,46 @@ import { useWebSpeechFallback } from '../audio/useWebSpeechFallback';
 import { ChatView } from './ChatView';
 import { Composer } from './Composer';
 import { ConfirmModal } from './ConfirmModal';
+import { EscalationCountdownModal } from './EscalationCountdownModal';
 import { PreSesion } from './PreSesion';
 import { SpeedControl } from './SpeedControl';
 
 export function PacientePage() {
   const navigate = useNavigate();
-  const { sessionId, isStarting, isClosing, start, close, reset } = useSessionLifecycle();
+  const { sessionId, isStarting, isClosing, isRestoring, start, close, reset } = useSessionLifecycle();
   const voiceConfig = useVoiceConfig();
   const audioPlayback = useAudioPlayback();
   const [speechRate, setSpeechRate] = useState(1);
+  const [isKnowledgeModalOpen, setIsKnowledgeModalOpen] = useState(false);
+  const { data: kbState } = useKbState();
+  // null hasta el primer evento WS; antes de eso se muestra la versión que ya
+  // trajo la consulta REST — sin useEffect, se deriva directo en el render.
+  const [liveKbVersion, setLiveKbVersion] = useState<number | null>(null);
+  const kbVersion = liveKbVersion ?? kbState?.version ?? null;
+
+  // La modal de escalada no vuelve a aparecer en la misma sesión una vez
+  // cancelada — el registro ya existe y el médico decide qué hacer con él.
+  // Reset "durante el render" (patrón oficial de React para resetear estado
+  // cuando cambia una prop/dependencia) en vez de un efecto: un useEffect que
+  // solo llama setState en cada cambio de sessionId dispara un render extra
+  // sin necesidad.
+  const [escalationCountdownSeconds, setEscalationCountdownSeconds] = useState<number | null>(null);
+  const [escalationAlreadyShown, setEscalationAlreadyShown] = useState(false);
+  const [endedByEscalation, setEndedByEscalation] = useState(false);
+  const [lastSessionId, setLastSessionId] = useState(sessionId);
+
+  if (sessionId !== lastSessionId) {
+    setLastSessionId(sessionId);
+    setEscalationAlreadyShown(false);
+    setEscalationCountdownSeconds(null);
+    setEndedByEscalation(false);
+  }
+
+  function handleEscalationStarted(_reason: 'red_flag' | 'patient_request', countdownSeconds: number): void {
+    if (escalationAlreadyShown) return;
+    setEscalationAlreadyShown(true);
+    setEscalationCountdownSeconds(countdownSeconds);
+  }
 
   // Texto del composer, dueño de PacientePage (no de Composer): el mic
   // necesita poder acumular transcripciones ahí, editables, sin auto-enviar
@@ -48,10 +83,24 @@ export function PacientePage() {
     sendAudioStart,
     sendAudioEnd,
     sendAudioChunk,
+    cancelEscalation,
   } = useConversation(sessionId, {
     onAudioChunk: isDeepgram ? audioPlayback.enqueue : undefined,
     onTranscript: appendTranscript,
+    onKnowledgeUpdated: setLiveKbVersion,
+    onEscalationStarted: handleEscalationStarted,
   });
+
+  async function handleEscalationExpire(): Promise<void> {
+    setEscalationCountdownSeconds(null);
+    await close();
+    setEndedByEscalation(true);
+  }
+
+  function handleEscalationCancel(): void {
+    cancelEscalation();
+    setEscalationCountdownSeconds(null);
+  }
 
   function handleSend(): void {
     const trimmed = draft.trim();
@@ -185,21 +234,47 @@ export function PacientePage() {
           ) : undefined
         }
         leftExtra={
-          <button
-            type="button"
-            aria-label="Actualizar conocimiento"
-            className="flex items-center gap-2 rounded-full border border-border-mid bg-surface-2 px-[14px] py-[9px] text-[13.5px] font-medium text-fg transition-colors duration-150 hover:border-accent hover:text-accent"
-          >
-            <FileText size={14} strokeWidth={1.7} />
-            <span className="hidden sm:inline">Actualizar conocimiento</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {kbVersion !== null && <KbVersionChip version={kbVersion} />}
+            <button
+              type="button"
+              aria-label="Actualizar conocimiento"
+              onClick={() => setIsKnowledgeModalOpen(true)}
+              className="flex items-center gap-2 rounded-full border border-border-mid bg-surface-2 px-[14px] py-[9px] text-[13.5px] font-medium text-fg transition-colors duration-150 hover:border-accent hover:text-accent"
+            >
+              <FileText size={14} strokeWidth={1.7} />
+              <span className="hidden sm:inline">Actualizar conocimiento</span>
+            </button>
+          </div>
         }
       />
 
-      {sessionId === null ? (
+      {isRestoring ? (
+        <main className="flex min-h-[calc(100vh-72px)] items-center justify-center px-5" />
+      ) : sessionId === null ? (
         <main className="flex min-h-[calc(100vh-72px)] items-center justify-center px-5">
           <div className="w-full max-w-[720px]">
-            <PreSesion onStart={() => void start()} isStarting={isStarting} />
+            <PreSesion onStart={(input) => void start(input)} isStarting={isStarting} />
+          </div>
+        </main>
+      ) : endedByEscalation ? (
+        <main className="flex min-h-[calc(100vh-72px)] items-center justify-center px-5 text-center">
+          <div className="flex max-w-[480px] flex-col items-center gap-3">
+            <h2 className="font-display text-[22px] font-semibold text-fg">Sesión finalizada</h2>
+            <p className="text-[14.5px] leading-[1.5] text-muted">
+              Tu caso fue puesto en conocimiento de un médico. Mantente pendiente de tu correo y de tu
+              teléfono.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                reset();
+                setEndedByEscalation(false);
+              }}
+              className="mt-2 rounded-full bg-accent px-[18px] py-[10px] text-[13.5px] font-medium text-on-accent"
+            >
+              Empezar una nueva conversación
+            </button>
           </div>
         </main>
       ) : (
@@ -262,6 +337,20 @@ export function PacientePage() {
           confirmLabel="Detener"
           onCancel={() => setIsStopVoiceModalOpen(false)}
           onConfirm={handleConfirmStopVoice}
+        />
+      )}
+
+      {isKnowledgeModalOpen && (
+        <Modal title="Actualizar conocimiento" onClose={() => setIsKnowledgeModalOpen(false)}>
+          <KnowledgeUploadForm />
+        </Modal>
+      )}
+
+      {escalationCountdownSeconds !== null && (
+        <EscalationCountdownModal
+          countdownSeconds={escalationCountdownSeconds}
+          onExpire={() => void handleEscalationExpire()}
+          onCancel={handleEscalationCancel}
         />
       )}
     </>

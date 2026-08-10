@@ -40,6 +40,10 @@ export const SessionSchema = z.object({
   summary: z.string().nullable(),
   structuredSummary: SessionSummarySchema.nullable(),
   createdAt: z.coerce.date(),
+  email: z.string(),
+  phone: z.string(),
+  closedAt: z.coerce.date().nullable(),
+  lastActivityAt: z.coerce.date(),
 });
 export type Session = z.infer<typeof SessionSchema>;
 
@@ -49,8 +53,10 @@ export const SessionDetailSchema = SessionSchema.extend({
 export type SessionDetail = z.infer<typeof SessionDetailSchema>;
 
 export const CreateSessionSchema = z.object({
-  patientName: z.string().min(1),
-  procedure: z.string().min(1),
+  patientName: z.string().min(1).max(120),
+  procedure: z.string().min(1).max(160),
+  email: z.string().email(),
+  phone: z.string().min(7).max(20),
 });
 export type CreateSessionInput = z.infer<typeof CreateSessionSchema>;
 
@@ -64,5 +70,6 @@ export type CreateTranscriptTurnInput = z.infer<typeof CreateTranscriptTurnSchem
 export const UpdateSessionSchema = z.object({
   status: SessionStatus.optional(),
   summary: z.string().nullable().optional(),
+  closedAt: z.coerce.date().nullable().optional(),
 });
 export type UpdateSessionInput = z.infer<typeof UpdateSessionSchema>;

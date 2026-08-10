@@ -1,3 +1,6 @@
+import type { Citation } from '@ts-sm/shared';
+
+import { CitationChips } from '../../../shared/components/CitationChips';
 import { formatTime } from '../../../shared/lib/format';
 
 interface BubbleProps {
@@ -7,15 +10,29 @@ interface BubbleProps {
   at?: Date;
   /** true mientras el turno todavía no cierra y ya hay audio sintetizándose. */
   processingAudio?: boolean;
+  citations?: Citation[];
+  kbVersion?: number;
 }
 
-export function Bubble({ who, text, isVoice, at, processingAudio }: BubbleProps) {
+export function Bubble({ who, text, isVoice, at, processingAudio, citations, kbVersion }: BubbleProps) {
+  // DESIGN.md §4.13: el separador de sistema no es un mensaje del asistente
+  // — sin burbuja, sin fondo, centrado, con líneas horizontales a los lados.
+  if (who === 'system') {
+    return (
+      <div className="flex items-center gap-3 py-1" role="separator">
+        <span className="h-px flex-1 bg-border" />
+        <span className="whitespace-nowrap font-mono text-[10.5px] text-muted">{text}</span>
+        <span className="h-px flex-1 bg-border" />
+      </div>
+    );
+  }
+
   // En /paciente el paciente es "yo": va a la derecha. Invertido respecto a la
   // vista médico (DESIGN.md §3.2, asimetría intencional — no unificar).
   const isOutgoing = who === 'patient';
 
   return (
-    <div className={`flex min-w-0 ${isOutgoing ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex min-w-0 flex-col ${isOutgoing ? 'items-end' : 'items-start'}`}>
       <div
         className={
           isOutgoing
@@ -43,6 +60,9 @@ export function Bubble({ who, text, isVoice, at, processingAudio }: BubbleProps)
           <p className="mt-1 text-right font-mono text-[10.5px] text-tx-muted">{formatTime(at)}</p>
         )}
       </div>
+      {who === 'assistant' && citations && citations.length > 0 && (
+        <CitationChips citations={citations} kbVersion={kbVersion ?? 0} />
+      )}
     </div>
   );
 }

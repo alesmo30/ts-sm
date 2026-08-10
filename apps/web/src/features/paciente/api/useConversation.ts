@@ -13,6 +13,10 @@ export interface UseConversationOptions {
   onAudioChunk?: (chunk: ArrayBuffer) => void;
   /** Transcripción final de un tramo de audio grabado — no se auto-envía, se acumula en el composer. */
   onTranscript?: (text: string) => void;
+  /** Nueva versión de la KB tras una ingesta o un cambio de estado activo/inactivo. */
+  onKnowledgeUpdated?: (kbVersion: number) => void;
+  /** Bandera roja o petición explícita detectada por el agente. */
+  onEscalationStarted?: (reason: 'red_flag' | 'patient_request', countdownSeconds: number) => void;
 }
 
 export interface UseConversationResult {
@@ -27,6 +31,7 @@ export interface UseConversationResult {
   sendAudioStart: () => void;
   sendAudioEnd: () => void;
   sendAudioChunk: (chunk: ArrayBuffer) => void;
+  cancelEscalation: () => void;
 }
 
 export function useConversation(sessionId: string | null, options: UseConversationOptions = {}): UseConversationResult {
@@ -41,6 +46,10 @@ export function useConversation(sessionId: string | null, options: UseConversati
   onAudioChunkRef.current = options.onAudioChunk;
   const onTranscriptRef = useRef(options.onTranscript);
   onTranscriptRef.current = options.onTranscript;
+  const onKnowledgeUpdatedRef = useRef(options.onKnowledgeUpdated);
+  onKnowledgeUpdatedRef.current = options.onKnowledgeUpdated;
+  const onEscalationStartedRef = useRef(options.onEscalationStarted);
+  onEscalationStartedRef.current = options.onEscalationStarted;
 
   useEffect(() => {
     if (!sessionId) return;
@@ -49,7 +58,8 @@ export function useConversation(sessionId: string | null, options: UseConversati
     let socketOpen = false;
     // Sesión nueva sin turnos: el LLM saluda primero apenas el socket esté
     // listo, en vez de arrancar con el chat vacío. Ver specs/06-capa-de-voz.md.
-    let shouldGreet = false;
+    // Sesión resumida (con turnos): solo hace falta registrar el socket.
+    let pendingAction: 'greet' | 'join' | null = null;
     setTurns([]);
     setStreamingText('');
     setIsStreaming(false);
@@ -61,6 +71,13 @@ export function useConversation(sessionId: string | null, options: UseConversati
         JSON.stringify({ event: 'start_conversation', data: { type: 'start_conversation', sessionId } }),
       );
     };
+    // Sesión resumida (F5, segunda pestaña): no dispara saludo, pero igual
+    // registra el socket contra la sesión para recibir server-push como
+    // knowledge_updated o escalation_started — sin esto, esas pestañas quedan
+    // huérfanas hasta que el paciente escribe su primer mensaje.
+    const joinSession = (): void => {
+      socketRef.current?.send(JSON.stringify({ event: 'join_session', data: { type: 'join_session', sessionId } }));
+    };
 
     apiClient
       .get(`/sessions/${sessionId}`, SessionDetailSchema)
@@ -68,8 +85,11 @@ export function useConversation(sessionId: string | null, options: UseConversati
         if (cancelled) return;
         setTurns(detail.turns);
         if (detail.turns.length === 0) {
-          shouldGreet = true;
+          pendingAction = 'greet';
           if (socketOpen) triggerGreeting();
+        } else {
+          pendingAction = 'join';
+          if (socketOpen) joinSession();
         }
       })
       .catch(() => {
@@ -82,7 +102,8 @@ export function useConversation(sessionId: string | null, options: UseConversati
 
     socket.onopen = () => {
       socketOpen = true;
-      if (shouldGreet) triggerGreeting();
+      if (pendingAction === 'greet') triggerGreeting();
+      else if (pendingAction === 'join') joinSession();
     };
 
     socket.onmessage = (message: MessageEvent<string | ArrayBuffer>) => {
@@ -152,6 +173,15 @@ export function useConversation(sessionId: string | null, options: UseConversati
           setStreamingText('');
           setIsSynthesizingVoice(false);
           break;
+        case 'knowledge_updated':
+          // Separador `who: 'system'` — no es un turno de streaming, se
+          // inserta directo en el hilo, igual que lo ve el paciente al recargar.
+          setTurns((prev) => [...prev, event.turn]);
+          onKnowledgeUpdatedRef.current?.(event.kbVersion);
+          break;
+        case 'escalation_started':
+          onEscalationStartedRef.current?.(event.reason, event.countdownSeconds);
+          break;
       }
     };
 
@@ -206,6 +236,11 @@ export function useConversation(sessionId: string | null, options: UseConversati
     socket.send(chunk);
   }, []);
 
+  const cancelEscalation = useCallback(() => {
+    if (!sessionId) return;
+    sendEvent({ type: 'escalation_cancelled', sessionId });
+  }, [sessionId, sendEvent]);
+
   return {
     turns,
     streamingText,
@@ -217,5 +252,6 @@ export function useConversation(sessionId: string | null, options: UseConversati
     sendAudioStart,
     sendAudioEnd,
     sendAudioChunk,
+    cancelEscalation,
   };
 }

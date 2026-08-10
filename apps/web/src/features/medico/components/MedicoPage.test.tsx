@@ -17,6 +17,10 @@ const sessionFixture = {
   summary: 'Resumen de la sesión',
   structuredSummary: null,
   createdAt: '2026-08-04T09:12:00.000Z',
+  email: 'marcela@example.com',
+  phone: '3001234567',
+  closedAt: null,
+  lastActivityAt: '2026-08-04T09:12:00.000Z',
 };
 
 const sessionDetailFixture = { ...sessionFixture, turns: [] };

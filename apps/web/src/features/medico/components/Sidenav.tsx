@@ -19,7 +19,7 @@ const NAV_ITEMS: NavItem[] = [
     view: 'priority',
     countKey: 'priorityPatients',
   },
-  { label: 'Agregar conocimiento', icon: BookPlus, view: null, countKey: null },
+  { label: 'Agregar conocimiento', icon: BookPlus, view: 'knowledge', countKey: null },
   { label: 'Referencias', icon: FileText, view: 'references', countKey: 'references' },
 ];
 

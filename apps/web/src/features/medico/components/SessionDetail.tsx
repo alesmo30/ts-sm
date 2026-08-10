@@ -1,9 +1,11 @@
+import type { Citation } from '@ts-sm/shared';
 import { ArrowLeft } from 'lucide-react';
 
+import { useKbState } from '../../../shared/api/useKbState';
+import { CitationChips } from '../../../shared/components/CitationChips';
 import { KbVersionChip } from '../../../shared/components/KbVersionChip';
 import { StatusTag } from '../../../shared/components/StatusTag';
 import { formatTime } from '../../../shared/lib/format';
-import { useKbState } from '../api/useKbState';
 import { useSession } from '../api/useSession';
 
 interface SessionDetailProps {
@@ -15,13 +17,25 @@ interface BubbleTurn {
   who: 'patient' | 'assistant' | 'system';
   text: string;
   isVoice: boolean;
+  citations: Citation[];
+  kbVersion: number;
 }
 
 function Bubble({ turn }: { turn: BubbleTurn }) {
+  if (turn.who === 'system') {
+    return (
+      <div className="flex items-center gap-3 py-1" role="separator">
+        <span className="h-px flex-1 bg-border" />
+        <span className="whitespace-nowrap font-mono text-[10.5px] text-muted">{turn.text}</span>
+        <span className="h-px flex-1 bg-border" />
+      </div>
+    );
+  }
+
   const isOutgoing = turn.who === 'assistant';
 
   return (
-    <div className={`flex min-w-0 ${isOutgoing ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex min-w-0 flex-col ${isOutgoing ? 'items-end' : 'items-start'}`}>
       <div
         className={
           isOutgoing
@@ -36,6 +50,9 @@ function Bubble({ turn }: { turn: BubbleTurn }) {
         )}
         <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{turn.text}</p>
       </div>
+      {isOutgoing && turn.citations.length > 0 && (
+        <CitationChips citations={turn.citations} kbVersion={turn.kbVersion} />
+      )}
     </div>
   );
 }

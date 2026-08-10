@@ -34,8 +34,16 @@ services:
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
       DEEPGRAM_STT_MODEL: ${DEEPGRAM_STT_MODEL:-nova-3}
       DEEPGRAM_TTS_MODEL: ${DEEPGRAM_TTS_MODEL:-aura-2-celeste-es}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-001}
+      ESCALATION_SIMILARITY_THRESHOLD: ${ESCALATION_SIMILARITY_THRESHOLD:-0.51}
     ports:
       - '${API_PORT:-3000}:3000'
+    volumes:
+      # Una traducción en runtime (ingesta de un PDF en inglés) escribe acá
+      # antes de tocar la base — sin este bind mount, el trabajo ya pagado al
+      # LLM se pierde al recrear el contenedor. Ver decisión en SPEC 08.
+      - ./apps/api/src/database/kb-cache:/repo/apps/api/src/database/kb-cache
     depends_on:
       db:
         condition: service_healthy

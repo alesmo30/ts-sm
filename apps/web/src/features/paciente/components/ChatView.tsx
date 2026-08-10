@@ -34,7 +34,15 @@ export function ChatView({ turns, streamingText, isStreaming, error, isSynthesiz
       className="flex-1 space-y-3 overflow-y-auto px-5 py-5"
     >
       {turns.map((turn) => (
-        <Bubble key={turn.id} who={turn.who} text={turn.text} isVoice={turn.isVoice} at={turn.at} />
+        <Bubble
+          key={turn.id}
+          who={turn.who}
+          text={turn.text}
+          isVoice={turn.isVoice}
+          at={turn.at}
+          citations={turn.citations}
+          kbVersion={turn.kbVersion}
+        />
       ))}
 
       {isStreaming && streamingText === '' && <TypingIndicator />}

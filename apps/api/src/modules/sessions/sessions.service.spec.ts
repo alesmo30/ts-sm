@@ -17,6 +17,10 @@ function makeSessionRow(overrides: Partial<SessionRow> = {}): SessionRow {
     summary: 'Resumen',
     structuredSummary: null,
     createdAt: new Date('2026-08-04T09:12:00Z'),
+    email: 'paciente@example.com',
+    phone: '3001234567',
+    closedAt: null,
+    lastActivityAt: new Date('2026-08-04T09:12:00Z'),
     ...overrides,
   };
 }
