@@ -727,6 +727,62 @@ describe('ConversationService', () => {
     });
   });
 
+  describe('normalización de modismos colombianos (SPEC 12)', () => {
+    function makeStatefulSessionsService() {
+      const savedTurns: TranscriptTurn[] = [];
+      let seq = 0;
+      let triageLevel: 'green' | 'yellow' | 'red' = 'green';
+      let triageAreas: unknown = {};
+      return {
+        addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+          const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text, citations: input.citations });
+          savedTurns.push(turn);
+          return Promise.resolve(turn);
+        }),
+        getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+        getTriageState: jest.fn(() => Promise.resolve({ triageLevel, triageAreas })),
+        updateTriage: jest.fn(
+          (_id: string, patch: { triageLevel: 'green' | 'yellow' | 'red'; triageAreas: unknown; status: string }) => {
+            triageLevel = patch.triageLevel;
+            triageAreas = patch.triageAreas;
+            return Promise.resolve();
+          },
+        ),
+      };
+    }
+
+    it('detecta señal de sueño a partir de un modismo colombiano, pero guarda el transcript con el texto original', async () => {
+      const sessionsService = makeStatefulSessionsService();
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          ConversationService,
+          LlmMetricsService,
+          { provide: EscalationService, useValue: fakeEscalationService() },
+          { provide: SessionsService, useValue: sessionsService },
+          { provide: LlmPort, useValue: new FakePort() },
+          { provide: VoiceService, useValue: fakeVoiceService },
+          { provide: RetrievalService, useValue: fakeRetrievalService() },
+          { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector({ triggered: false }) },
+          { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+        ],
+      }).compile();
+
+      const service = moduleRef.get(ConversationService);
+      const colloquialText = 'doctor, no me deja pegar el ojo desde la operación';
+      await service.handleUserMessage(SESSION_ID, colloquialText, false, () => {});
+
+      const lastAreas = (sessionsService.updateTriage as jest.Mock).mock.calls[0][1].triageAreas as Record<
+        string,
+        { covered: string; level: string }
+      >;
+      expect(lastAreas.sleep).toMatchObject({ covered: 'individual', level: 'yellow' });
+
+      const patientTurn = (sessionsService.addTurn as jest.Mock).mock.calls.find(([, input]) => input.who === 'patient');
+      expect(patientTurn[1].text).toBe(colloquialText);
+    });
+  });
+
   it('oculta las citas del turno del asistente cuando el LLM emite [[SIN_REFERENCIA]]', async () => {
     const savedTurns: TranscriptTurn[] = [];
     let seq = 0;

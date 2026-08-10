@@ -7,6 +7,7 @@ import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 
 import { resolveFromRepoRoot } from '../database/repo-root';
+import { normalizeColloquialSpeech } from '../modules/escalation/colloquial-glossary';
 import {
   accumulatedLevel,
   evaluate,
@@ -173,6 +174,7 @@ interface EvalResult {
   expected: Label;
   predicted: Label;
   signals: TriageSignal[];
+  normalized: boolean;
 }
 
 /**
@@ -182,13 +184,18 @@ interface EvalResult {
  * consume turnos del agente — ninguna de las dos entradas puede subir el
  * nivel por sí sola: `mergeTriageAreas` las marca con `level: 'green'`, y
  * `accumulatedLevel` solo cuenta áreas en `yellow`.
+ *
+ * `normalized` decide si cada turno pasa por `normalizeColloquialSpeech`
+ * (SPEC 12) antes de `evaluate()` — con `false` reproduce exactamente la
+ * pasada de SPEC 11, sin ninguna diferencia de comportamiento.
  */
-function predictCase(evalCase: EvalCase): EvalResult {
+function predictCase(evalCase: EvalCase, normalized: boolean): EvalResult {
   let level: TriageLevel = 'green';
   let areas: TriageAreas = {};
   const allSignals: TriageSignal[] = [];
 
-  for (const text of evalCase.turns) {
+  for (const rawText of evalCase.turns) {
+    const text = normalized ? normalizeColloquialSpeech(rawText) : rawText;
     const signals = evaluate(text);
     allSignals.push(...signals);
     areas = mergeTriageAreas(areas, signals, [], false);
@@ -201,6 +208,7 @@ function predictCase(evalCase: EvalCase): EvalResult {
     expected: evalCase.expected,
     predicted: LEVEL_TO_LABEL[level],
     signals: allSignals,
+    normalized,
   };
 }
 
@@ -237,10 +245,14 @@ function formatMatrixMarkdown(matrix: ConfusionMatrix): string {
   return [header, separator, ...rows].join('\n');
 }
 
+function recallForLabel(results: EvalResult[], label: Label): { hits: number; total: number } {
+  const withLabel = results.filter((result) => result.expected === label);
+  const hits = withLabel.filter((result) => result.predicted === label).length;
+  return { hits, total: withLabel.length };
+}
+
 function redRecall(results: EvalResult[]): { hits: number; total: number } {
-  const redCases = results.filter((result) => result.expected === 'rojo');
-  const hits = redCases.filter((result) => result.predicted === 'rojo').length;
-  return { hits, total: redCases.length };
+  return recallForLabel(results, 'rojo');
 }
 
 function falseNegatives(results: EvalResult[]): { toGreen: EvalResult[]; toYellow: EvalResult[] } {
@@ -280,45 +292,75 @@ function getEvaluatedCommit(): string {
   }
 }
 
-function buildReportMarkdown(resultsByCapa: Map<Capa, EvalResult[]>): string {
+interface CapaPass {
+  base: EvalResult[];
+  normalized: EvalResult[];
+}
+
+function formatPassSection(title: string, results: EvalResult[]): string {
+  const matrix = buildConfusionMatrix(results);
+  const recall = redRecall(results);
+  const fn = falseNegatives(results);
+
+  return [
+    `### ${title}`,
+    '',
+    formatMatrixMarkdown(matrix),
+    '',
+    `**Recall de rojos:** ${recall.hits}/${recall.total}`,
+    `**Falsos negativos rojo→verde (catastrófico):** ${fn.toGreen.length}`,
+    `**Falsos negativos rojo→amarillo (grave):** ${fn.toYellow.length}`,
+    '',
+    '#### Casos fallados',
+    '',
+    formatFailedCasesMarkdown(results),
+  ].join('\n');
+}
+
+function formatDeltaSummary(base: EvalResult[], normalized: EvalResult[]): string {
+  const header = '| etiqueta | recall sin normalizar | recall con normalizar | diferencia |';
+  const separator = '| --- | --- | --- | --- |';
+  const rows = LABELS.map((label) => {
+    const before = recallForLabel(base, label);
+    const after = recallForLabel(normalized, label);
+    const diff = after.hits - before.hits;
+    const sign = diff > 0 ? '+' : '';
+    return `| ${label} | ${before.hits}/${before.total} | ${after.hits}/${after.total} | ${sign}${diff} |`;
+  });
+  return [header, separator, ...rows].join('\n');
+}
+
+function buildReportMarkdown(resultsByCapa: Map<Capa, CapaPass>): string {
   const today = new Date().toISOString().slice(0, 10);
   const commit = getEvaluatedCommit();
 
   const sections = CAPAS.map((capa) => {
-    const results = resultsByCapa.get(capa) ?? [];
-    const matrix = buildConfusionMatrix(results);
-    const recall = redRecall(results);
-    const fn = falseNegatives(results);
-
+    const pass = resultsByCapa.get(capa) ?? { base: [], normalized: [] };
     return [
       `## ${capa}`,
       '',
-      '### Matriz de confusión (referencia × predicho)',
+      '#### Antes vs. después (recall por etiqueta)',
       '',
-      formatMatrixMarkdown(matrix),
+      formatDeltaSummary(pass.base, pass.normalized),
       '',
-      `**Recall de rojos:** ${recall.hits}/${recall.total}`,
+      formatPassSection('Sin normalizar (línea base SPEC 11)', pass.base),
       '',
-      `**Falsos negativos rojo→verde (catastrófico):** ${fn.toGreen.length}`,
-      `**Falsos negativos rojo→amarillo (grave):** ${fn.toYellow.length}`,
-      '',
-      '### Casos fallados',
-      '',
-      formatFailedCasesMarkdown(results),
+      formatPassSection('Con normalización de modismos colombianos (SPEC 12)', pass.normalized),
     ].join('\n');
   });
 
   return [
-    '# Evaluación de triage — SPEC 11',
+    '# Evaluación de triage — SPEC 11 + SPEC 12 (normalización de modismos colombianos)',
     '',
     `**Fecha:** ${today}`,
     `**Commit evaluado de \`triage.rules.ts\`:** ${commit}`,
     '',
-    '> Esta matriz mide **solo la rama determinística** del triage (`triage.rules.ts`). ' +
-      '`RedFlagDetectorService` (similitud semántica, requiere `GEMINI_API_KEY`) y la marca ' +
-      '`[[ESCALAR]]` del modelo no están incluidas — no son reproducibles offline sin costo. ' +
-      'En producción esas dos señales solo pueden subir la severidad, nunca bajarla: esta matriz ' +
-      'es un **piso**, no el rendimiento del sistema completo.',
+    '> Esta matriz mide **solo la rama determinística** del triage (`triage.rules.ts` + la capa de ' +
+      'normalización de `colloquial-glossary.ts`). `RedFlagDetectorService` (similitud semántica, ' +
+      'requiere `GEMINI_API_KEY`) y la marca `[[ESCALAR]]` del modelo no están incluidas — no son ' +
+      'reproducibles offline sin costo. En producción esas dos señales solo pueden subir la severidad, ' +
+      'nunca bajarla: esta matriz es un **piso**, no el rendimiento del sistema completo. La pasada ' +
+      '"sin normalizar" reproduce exactamente la línea base commiteada en SPEC 11.',
     '',
     sections.join('\n\n'),
     '',
@@ -333,20 +375,30 @@ async function main(): Promise<void> {
   const cases = buildCases(rows);
   reportCaseCounts(cases);
 
-  const results = cases.map(predictCase);
-  const correct = results.filter((result) => result.predicted === result.expected).length;
-  console.log(`${correct}/${results.length} casos predichos correctamente (ambas capas)`);
+  const baseResults = cases.map((evalCase) => predictCase(evalCase, false));
+  const normalizedResults = cases.map((evalCase) => predictCase(evalCase, true));
 
-  const resultsByCapa = new Map<Capa, EvalResult[]>(
-    CAPAS.map((capa) => [capa, results.filter((result) => result.capa === capa)]),
+  const baseCorrect = baseResults.filter((result) => result.predicted === result.expected).length;
+  const normalizedCorrect = normalizedResults.filter((result) => result.predicted === result.expected).length;
+  console.log(`sin normalizar: ${baseCorrect}/${baseResults.length} casos correctos (ambas capas)`);
+  console.log(`con normalizar: ${normalizedCorrect}/${normalizedResults.length} casos correctos (ambas capas)`);
+
+  const resultsByCapa = new Map<Capa, CapaPass>(
+    CAPAS.map((capa) => [
+      capa,
+      {
+        base: baseResults.filter((result) => result.capa === capa),
+        normalized: normalizedResults.filter((result) => result.capa === capa),
+      },
+    ]),
   );
 
   for (const capa of CAPAS) {
-    const capaResults = resultsByCapa.get(capa) ?? [];
-    const recall = redRecall(capaResults);
-    const fn = falseNegatives(capaResults);
-    console.log(`\n${capa} — recall de rojos: ${recall.hits}/${recall.total}`);
-    console.log(`${capa} — falsos negativos rojo→verde: ${fn.toGreen.length}, rojo→amarillo: ${fn.toYellow.length}`);
+    const pass = resultsByCapa.get(capa) ?? { base: [], normalized: [] };
+    const recallBefore = redRecall(pass.base);
+    const recallAfter = redRecall(pass.normalized);
+    console.log(`\n${capa} — recall de rojos sin normalizar: ${recallBefore.hits}/${recallBefore.total}`);
+    console.log(`${capa} — recall de rojos con normalizar: ${recallAfter.hits}/${recallAfter.total}`);
   }
 
   const reportMarkdown = buildReportMarkdown(resultsByCapa);
