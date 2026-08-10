@@ -1,0 +1,63 @@
+import { Inject, Injectable } from '@nestjs/common';
+
+import type { EmbeddingConfig } from './embedding.config';
+import { EMBEDDING_CONFIG } from './embedding.tokens';
+
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+export function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  if (normA === 0 || normB === 0) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+/**
+ * Cliente compartido de embeddings (Gemini/AI Studio) — encoder, no LLM
+ * generativo, permitido por la zona gris de REGLAS.md (líneas 63-78). Usado
+ * por RedFlagDetectorService (backstop de escalada, specs/problema-escalamiento-bloque5.md)
+ * y CitationRelevanceService (filtrado de citas irrelevantes).
+ *
+ * gemini-embedding-001 no soporta batchEmbedContents de forma síncrona (solo
+ * embedContent y asyncBatchEmbedContent, que es un job asíncrono) — cada
+ * texto se embebe con su propia petición.
+ */
+@Injectable()
+export class EmbeddingClient {
+  constructor(@Inject(EMBEDDING_CONFIG) private readonly config: EmbeddingConfig) {}
+
+  get isAvailable(): boolean {
+    return !!this.config.apiKey;
+  }
+
+  embedBatch(texts: string[]): Promise<number[][]> {
+    return Promise.all(texts.map((text) => this.embedOne(text)));
+  }
+
+  async embedOne(text: string): Promise<number[]> {
+    const url = `${GEMINI_API_BASE}/models/${this.config.model}:embedContent?key=${this.config.apiKey}`;
+    const body = {
+      model: `models/${this.config.model}`,
+      content: { parts: [{ text }] },
+    };
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Gemini embeddings respondió ${response.status}: ${await response.text()}`);
+    }
+
+    const data = (await response.json()) as { embedding: { values: number[] } };
+    return data.embedding.values;
+  }
+}

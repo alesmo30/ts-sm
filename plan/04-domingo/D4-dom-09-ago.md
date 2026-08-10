@@ -155,3 +155,16 @@ Adelantar lo que se pueda de D5 con el sistema fresco en la cabeza:
 | Optimizar latencia introduce bugs nuevos | Medir antes de cada cambio, revertir lo que no dé ganancia clara. Es domingo: no es día de riesgo |
 | **Se ignora el congelamiento de las 17:00** | **Alta.** Es la trampa clásica. Poner una alarma. Los 30 puntos de D5 valen el doble que el arreglito pendiente |
 | El golden dataset consume mucho presupuesto de LLM | Correrlo una vez completo, y luego sobre un subconjunto |
+
+---
+
+## Addendum — SPEC 08 (conocimiento vivo y escalamiento)
+
+Implementada en la rama `spec-08-conocimiento-vivo-y-escalamiento`, en paralelo a este día de pulido de voz.
+
+**Fricción encontrada, no amerita reabrir el spec:**
+- `multer` es dependencia transitiva de `@nestjs/platform-express` (vía `FileInterceptor`), pero pnpm en modo estricto no expone transitivas en el `node_modules` de `apps/api`. La imagen de `api` en Docker fallaba con `Cannot find module 'multer'` al arrancar. Fix: `multer` se agregó como dependencia directa de `apps/api/package.json`, no solo `@types/multer` como dev.
+
+**Documento de prueba usado para el guion de G5** (subir → citar → deshabilitar → declarar límite → rehabilitar → citar de nuevo), reproducible desde cero con `docker compose down -v && docker compose up`:
+- Nombre: `protocolo-docker-test.md`, texto pegado (no archivo): *"Protocolo docker test: el paciente debe aplicar hielo local 20 minutos cada 4 horas durante las primeras 48 horas."* No pertenece a ningún corpus entregado.
+- Arranque limpio medido: ~3 minutos hasta `api` y `web` healthy con el corpus de 107 documentos cargado — muy por debajo de los 15 minutos de G2.

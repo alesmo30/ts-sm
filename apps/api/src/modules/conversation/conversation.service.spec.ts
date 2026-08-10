@@ -1,6 +1,9 @@
 import { Test } from '@nestjs/testing';
 import type { CreateTranscriptTurnInput, Session, SessionDetail, TranscriptTurn } from '@ts-sm/shared';
 
+import { EscalationService } from '../escalation/escalation.service';
+import { RedFlagDetectorService } from '../escalation/red-flag-detector.service';
+import { CitationRelevanceService } from '../knowledge/citation-relevance.service';
 import { RetrievalService } from '../knowledge/retrieval.service';
 import { LlmPort } from '../llm/llm.port';
 import type { LlmCompletion, LlmDelta, LlmMessage, LlmStructured } from '../llm/llm.types';
@@ -17,6 +20,31 @@ const fakeVoiceService = { isAvailable: false } as unknown as VoiceService;
 
 function fakeRetrievalService(citations: unknown[] = []) {
   return { search: jest.fn(() => Promise.resolve(citations)) } as unknown as RetrievalService;
+}
+
+// Pass-through por default: mismo comportamiento fail-open que la implementación
+// real cuando no hay GEMINI_API_KEY — no filtra nada salvo que el test lo pida.
+function fakeCitationRelevanceService(filtered?: unknown[]) {
+  return {
+    filterRelevant: jest.fn((_query: string, citations: unknown[]) => Promise.resolve(filtered ?? citations)),
+  } as unknown as CitationRelevanceService;
+}
+
+function fakeEscalationService() {
+  return {
+    escalate: jest.fn(() => Promise.resolve(false)),
+    refresh: jest.fn(() => Promise.resolve()),
+    cancel: jest.fn(() => Promise.resolve()),
+    onSessionClosed: jest.fn(() => Promise.resolve()),
+  } as unknown as EscalationService;
+}
+
+function fakeRedFlagDetector(result: { triggered: boolean; score?: number; matchedPhrase?: string | null } = { triggered: false }) {
+  return {
+    check: jest.fn(() =>
+      Promise.resolve({ triggered: result.triggered, score: result.score ?? 0, matchedPhrase: result.matchedPhrase ?? null }),
+    ),
+  } as unknown as RedFlagDetectorService;
 }
 
 class FakePort implements LlmPort {
@@ -95,10 +123,13 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: port },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
       ],
     }).compile();
 
@@ -165,10 +196,13 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FakePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: retrievalService },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
       ],
     }).compile();
 
@@ -182,6 +216,76 @@ describe('ConversationService', () => {
     // El turno del paciente nunca lleva citas; solo el del asistente.
     expect(sessionsService.addTurn.mock.calls[0][1]).toMatchObject({ who: 'patient', citations: [] });
     expect(sessionsService.addTurn.mock.calls[1][1]).toMatchObject({ who: 'assistant', citations: fakeCitations });
+  });
+
+  it('oculta las citas del turno del asistente cuando el LLM emite [[SIN_REFERENCIA]]', async () => {
+    const savedTurns: TranscriptTurn[] = [];
+    let seq = 0;
+
+    const sessionsService = {
+      addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+        const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text, citations: input.citations });
+        savedTurns.push(turn);
+        return Promise.resolve(turn);
+      }),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+    };
+
+    const fakeCitations = [
+      {
+        docId: '33333333-3333-3333-3333-333333333333',
+        docName: 'guia-hielo.md',
+        chunkId: '44444444-4444-4444-4444-444444444444',
+        version: 1,
+        score: 0.001,
+        snippet: 'Fragmento que no responde la pregunta real del paciente.',
+      },
+    ];
+
+    class NoReferencePort extends FakePort {
+      async *stream(): AsyncIterable<LlmDelta> {
+        yield { type: 'text', text: 'No tengo información confirmada sobre eso.\n[[SIN_REFERENCIA]]' };
+        yield {
+          type: 'done',
+          completion: {
+            text: 'No tengo información confirmada sobre eso.\n[[SIN_REFERENCIA]]',
+            model: 'mock',
+            usage: { inputTokens: 5, outputTokens: 3, costUsd: 0 },
+            latencyMs: 10,
+          },
+        };
+      }
+    }
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: EscalationService, useValue: fakeEscalationService() },
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: new NoReferencePort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService(fakeCitations) },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    const events: unknown[] = [];
+
+    await service.handleUserMessage(SESSION_ID, 'confirmar mi cita de control', false, (event) =>
+      events.push(event),
+    );
+
+    expect(sessionsService.addTurn.mock.calls[1][1]).toMatchObject({ who: 'assistant', citations: [] });
+
+    const deltaText = events
+      .filter((event) => (event as { type: string }).type === 'delta')
+      .map((event) => (event as { text: string }).text)
+      .join('');
+    expect(deltaText).not.toContain('SIN_REFERENCIA');
+    expect(deltaText).not.toContain('[[');
   });
 
   it('con isVoice y voz disponible, sintetiza por frase y persiste el turno del asistente con isVoice:true', async () => {
@@ -222,10 +326,13 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new SentencePort() },
         { provide: VoiceService, useValue: speakingVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
       ],
     }).compile();
 
@@ -277,10 +384,13 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FakePort() },
         { provide: VoiceService, useValue: speakingVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
       ],
     }).compile();
 
@@ -301,6 +411,157 @@ describe('ConversationService', () => {
     expect(audioChunks.length).toBeGreaterThan(0);
     expect(sessionsService.addTurn.mock.calls[0][1]).toMatchObject({ who: 'patient', isVoice: false });
     expect(sessionsService.addTurn.mock.calls[1][1]).toMatchObject({ who: 'assistant', isVoice: true });
+  });
+
+  it('detecta [[ESCALAR]] partido entre chunks, nunca lo emite y dispara la escalada', async () => {
+    const savedTurns: TranscriptTurn[] = [];
+    let seq = 0;
+
+    const sessionsService = {
+      addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+        const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text });
+        savedTurns.push(turn);
+        return Promise.resolve(turn);
+      }),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+    };
+
+    class EscalatingPort extends FakePort {
+      async *stream(): AsyncIterable<LlmDelta> {
+        yield { type: 'text', text: 'Ya aviso a tu médico.\n[[ESCA' };
+        yield { type: 'text', text: 'LAR]]' };
+        yield {
+          type: 'done',
+          completion: {
+            text: 'Ya aviso a tu médico.\n[[ESCALAR]]',
+            model: 'mock',
+            usage: { inputTokens: 5, outputTokens: 3, costUsd: 0 },
+            latencyMs: 10,
+          },
+        };
+      }
+    }
+
+    const escalationService = fakeEscalationService();
+    (escalationService.escalate as jest.Mock).mockResolvedValue(true);
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: EscalationService, useValue: escalationService },
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: new EscalatingPort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    const events: unknown[] = [];
+
+    const escalated = await service.handleUserMessage(SESSION_ID, 'quiero hablar con un médico', false, (event) =>
+      events.push(event),
+    );
+
+    expect(escalated).toBe(true);
+    expect(escalationService.escalate).toHaveBeenCalledWith(SESSION_ID, 'patient_request');
+
+    const deltaTexts = events
+      .filter((event) => (event as { type: string }).type === 'delta')
+      .map((event) => (event as { text: string }).text)
+      .join('');
+    expect(deltaTexts).not.toContain('ESCALAR');
+    expect(deltaTexts).not.toContain('[[');
+
+    const assistantTurnText = sessionsService.addTurn.mock.calls[1][1].text as string;
+    expect(assistantTurnText).not.toContain('ESCALAR');
+
+    const eventTypes = events.map((event) => (event as { type: string }).type);
+    expect(eventTypes).toContain('escalation_started');
+  });
+
+  it('escala por el backstop de embeddings aunque el LLM no emita [[ESCALAR]]', async () => {
+    const savedTurns: TranscriptTurn[] = [];
+    let seq = 0;
+
+    const sessionsService = {
+      addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+        const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text });
+        savedTurns.push(turn);
+        return Promise.resolve(turn);
+      }),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+    };
+
+    const escalationService = fakeEscalationService();
+    (escalationService.escalate as jest.Mock).mockResolvedValue(true);
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: EscalationService, useValue: escalationService },
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: new FakePort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector({ triggered: true, score: 0.7 }) },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    const events: unknown[] = [];
+
+    const escalated = await service.handleUserMessage(
+      SESSION_ID,
+      'Tengo fiebre muy alta y me cuesta respirar.',
+      false,
+      (event) => events.push(event),
+    );
+
+    expect(escalated).toBe(true);
+    expect(escalationService.escalate).toHaveBeenCalledWith(SESSION_ID, 'red_flag');
+    expect(events.map((event) => (event as { type: string }).type)).toContain('escalation_started');
+  });
+
+  it('no escala si ni el LLM ni el backstop lo detectan', async () => {
+    const savedTurns: TranscriptTurn[] = [];
+    let seq = 0;
+
+    const sessionsService = {
+      addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+        const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text });
+        savedTurns.push(turn);
+        return Promise.resolve(turn);
+      }),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+    };
+
+    const escalationService = fakeEscalationService();
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: EscalationService, useValue: escalationService },
+        { provide: SessionsService, useValue: sessionsService },
+        { provide: LlmPort, useValue: new FakePort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector({ triggered: false, score: 0.2 }) },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    const escalated = await service.handleUserMessage(SESSION_ID, 'hola, todo bien', false, () => {});
+
+    expect(escalated).toBe(false);
+    expect(escalationService.escalate).not.toHaveBeenCalled();
   });
 
   it('emite un evento error y no rompe si el puerto falla', async () => {
@@ -325,10 +586,13 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FailingPort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
       ],
     }).compile();
 
@@ -350,7 +614,7 @@ describe('ConversationService', () => {
     const sessionsService = {
       addTurn: jest.fn(),
       getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns } as unknown as SessionDetail)),
-      update: jest.fn((_id: string, patch: { status?: string; summary?: string | null }) =>
+      update: jest.fn((_id: string, patch: { status?: string; summary?: string | null; closedAt?: Date | null }) =>
         Promise.resolve({ id: SESSION_ID, status: patch.status, summary: patch.summary } as unknown as Session),
       ),
     };
@@ -359,17 +623,24 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FakePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
       ],
     }).compile();
 
     const service = moduleRef.get(ConversationService);
     const result = await service.closeSession(SESSION_ID);
 
-    expect(sessionsService.update).toHaveBeenCalledWith(SESSION_ID, { status: 'ok', summary: 'Resumen de una línea.' });
+    expect(sessionsService.update).toHaveBeenCalledWith(SESSION_ID, {
+      status: 'ok',
+      summary: 'Resumen de una línea.',
+      closedAt: expect.any(Date),
+    });
     expect(result?.status).toBe('ok');
   });
 
@@ -382,7 +653,7 @@ describe('ConversationService', () => {
     const sessionsService = {
       addTurn: jest.fn(),
       getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns } as unknown as SessionDetail)),
-      update: jest.fn((_id: string, patch: { status?: string; summary?: string | null }) =>
+      update: jest.fn((_id: string, patch: { status?: string; summary?: string | null; closedAt?: Date | null }) =>
         Promise.resolve({ id: SESSION_ID, status: patch.status, summary: patch.summary } as unknown as Session),
       ),
     };
@@ -397,17 +668,24 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new FailingCompletePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
       ],
     }).compile();
 
     const service = moduleRef.get(ConversationService);
     const result = await service.closeSession(SESSION_ID);
 
-    expect(sessionsService.update).toHaveBeenCalledWith(SESSION_ID, { status: 'ok', summary: null });
+    expect(sessionsService.update).toHaveBeenCalledWith(SESSION_ID, {
+      status: 'ok',
+      summary: null,
+      closedAt: expect.any(Date),
+    });
     expect(result?.status).toBe('ok');
   });
 
@@ -417,7 +695,7 @@ describe('ConversationService', () => {
     const sessionsService = {
       addTurn: jest.fn(),
       getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns } as unknown as SessionDetail)),
-      update: jest.fn((_id: string, patch: { status?: string; summary?: string | null }) =>
+      update: jest.fn((_id: string, patch: { status?: string; summary?: string | null; closedAt?: Date | null }) =>
         Promise.resolve({ id: SESSION_ID, status: patch.status, summary: patch.summary } as unknown as Session),
       ),
     };
@@ -429,10 +707,13 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: port },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
       ],
     }).compile();
 
@@ -440,7 +721,11 @@ describe('ConversationService', () => {
     await service.closeSession(SESSION_ID);
 
     expect(completeSpy).not.toHaveBeenCalled();
-    expect(sessionsService.update).toHaveBeenCalledWith(SESSION_ID, { status: 'ok', summary: null });
+    expect(sessionsService.update).toHaveBeenCalledWith(SESSION_ID, {
+      status: 'ok',
+      summary: null,
+      closedAt: expect.any(Date),
+    });
   });
 
   it('closeSession borra la sesión y no genera resumen si el paciente nunca escribió', async () => {
@@ -458,10 +743,13 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: port },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
       ],
     }).compile();
 

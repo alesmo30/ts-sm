@@ -23,6 +23,10 @@ function toSession(row: SessionRow): Session {
     summary: row.summary,
     structuredSummary: (row.structuredSummary as Session['structuredSummary']) ?? null,
     createdAt: row.createdAt,
+    email: row.email,
+    phone: row.phone,
+    closedAt: row.closedAt,
+    lastActivityAt: row.lastActivityAt,
   };
 }
 
@@ -47,6 +51,14 @@ export class SessionsService {
   async list(q?: string): Promise<Session[]> {
     const rows = await this.repository.findAll(q);
     return rows.map(toSession);
+  }
+
+  listOpenSessionIds(): Promise<string[]> {
+    return this.repository.findOpenSessionIds();
+  }
+
+  listStaleOpenSessionIds(olderThan: Date): Promise<string[]> {
+    return this.repository.findStaleOpenSessionIds(olderThan);
   }
 
   async getDetail(id: string): Promise<SessionDetail> {

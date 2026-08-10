@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { KbStateSchema } from '@ts-sm/shared';
 
-import { apiClient } from '../../../shared/lib/apiClient';
+import { apiClient } from '../lib/apiClient';
 
 export function useKbState() {
   return useQuery({

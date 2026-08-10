@@ -6,6 +6,7 @@ import { useStatsCounts } from '../api/useStatsCounts';
 import type { MedicoView, Selection } from '../types';
 
 import { DashboardView } from './DashboardView';
+import { KnowledgeView } from './KnowledgeView';
 import { PriorityDetail } from './PriorityDetail';
 import { PriorityView } from './PriorityView';
 import { ReferencesView } from './ReferencesView';
@@ -24,6 +25,10 @@ const PANE_HEAD: Record<MedicoView, { title: string; subtitle: string }> = {
   references: {
     title: 'Referencias',
     subtitle: 'Documentos e indicaciones que alimentan el RAG del asistente',
+  },
+  knowledge: {
+    title: 'Agregar conocimiento',
+    subtitle: 'Sube documentos o texto para que el asistente los use de inmediato',
   },
 };
 
@@ -101,6 +106,7 @@ export function MedicoPage() {
               />
             ))}
           {view === 'references' && <ReferencesView />}
+          {view === 'knowledge' && <KnowledgeView />}
         </main>
       </div>
     </>

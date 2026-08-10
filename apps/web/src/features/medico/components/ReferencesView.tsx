@@ -1,8 +1,8 @@
 import type { Reference } from '@ts-sm/shared';
 import { useState } from 'react';
 
+import { useReferences } from '../../../shared/api/useReferences';
 import { TableStates } from '../../../shared/components/TableStates';
-import { useReferences } from '../api/useReferences';
 
 import { ReferenceList } from './ReferenceList';
 import { ReferenceViewerModal } from './ReferenceViewerModal';

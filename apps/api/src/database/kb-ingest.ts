@@ -7,6 +7,7 @@ import { Pool } from 'pg';
 import { extractText, getDocumentProxy } from 'unpdf';
 
 import { chunkByParagraphs } from '../modules/knowledge/chunker';
+import { detectLanguage } from '../modules/knowledge/detect-language';
 
 import { resolveFromRepoRoot } from './repo-root';
 import { referenceChunks, references } from './schema';
@@ -24,59 +25,6 @@ const CONTROL_CHARS_REGEX = new RegExp(
   `[${CONTROL_CHAR_CODES.map((code) => String.fromCharCode(code)).join('')}]`,
   'g',
 );
-
-const SPANISH_STOPWORDS = [
-  'de',
-  'la',
-  'el',
-  'en',
-  'que',
-  'los',
-  'las',
-  'una',
-  'para',
-  'con',
-  'por',
-  'del',
-  'como',
-  'más',
-  'su',
-  'al',
-];
-
-const ENGLISH_STOPWORDS = [
-  'the',
-  'and',
-  'of',
-  'to',
-  'in',
-  'is',
-  'for',
-  'with',
-  'that',
-  'on',
-  'as',
-  'are',
-  'by',
-  'an',
-  'from',
-];
-
-type Lang = 'spanish' | 'english';
-
-function detectLanguage(text: string): Lang {
-  const lower = text.toLowerCase();
-  const countMatches = (words: string[]): number =>
-    words.reduce((total, word) => {
-      const matches = lower.match(new RegExp(`\\b${word}\\b`, 'g'));
-      return total + (matches?.length ?? 0);
-    }, 0);
-
-  const spanishScore = countMatches(SPANISH_STOPWORDS);
-  const englishScore = countMatches(ENGLISH_STOPWORDS);
-
-  return englishScore > spanishScore ? 'english' : 'spanish';
-}
 
 async function walkPdfFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });

@@ -21,10 +21,11 @@ async function request<T>(
   path: string,
   schema: ResponseSchema<T>,
   init?: RequestInit,
+  extraHeaders: Record<string, string> = { 'Content-Type': 'application/json' },
 ): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    headers: { ...extraHeaders, ...init?.headers },
   });
 
   if (!response.ok) {
@@ -53,5 +54,9 @@ export const apiClient = {
   },
   patch<T>(path: string, schema: ResponseSchema<T>, body: unknown): Promise<T> {
     return request(path, schema, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+  // Sin Content-Type explícito: el navegador fija el boundary de multipart/form-data solo.
+  postForm<T>(path: string, schema: ResponseSchema<T>, formData: FormData): Promise<T> {
+    return request(path, schema, { method: 'POST', body: formData }, {});
   },
 };

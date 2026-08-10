@@ -1,0 +1,1 @@
+export const EMBEDDING_CONFIG = Symbol('EMBEDDING_CONFIG');

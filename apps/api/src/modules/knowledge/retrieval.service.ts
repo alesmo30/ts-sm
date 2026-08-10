@@ -27,10 +27,16 @@ export class RetrievalService {
     // eso exige que TODOS los términos aparezcan en un mismo chunk, lo que en
     // la práctica nunca matchea nada más allá de la primera pregunta corta.
     // Se reescribe el AND (' & ') a OR (' | ') conservando el stemming en
-    // español que ya hizo plainto_tsquery — ts_rank sigue premiando los
-    // chunks que matchean más términos.
+    // español que ya hizo plainto_tsquery.
     const tsQuery = sql`regexp_replace(plainto_tsquery('spanish', ${query})::text, ' & ', ' | ', 'g')::tsquery`;
-    const rank = sql<number>`ts_rank(${referenceChunks.tsv}, ${tsQuery})`;
+    // Normalización 2: divide el rank por la longitud del chunk (en lexemas).
+    // Sin esto, ts_rank puro favorece PDFs largos que repiten un término común
+    // de la consulta (p. ej. "rodilla") muchas veces sobre un chunk corto y
+    // preciso que sí contiene el término específico que responde la pregunta
+    // (p. ej. "hielo") — el chunk correcto queda opacado por chunks solo
+    // tangencialmente relacionados. Dividir por longitud premia la densidad
+    // de coincidencia, no el volumen bruto de menciones.
+    const rank = sql<number>`ts_rank(${referenceChunks.tsv}, ${tsQuery}, 2)`;
 
     const rows = await this.db
       .select({

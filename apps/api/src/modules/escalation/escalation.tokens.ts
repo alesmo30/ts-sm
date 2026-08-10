@@ -1,0 +1,1 @@
+export const ESCALATION_CONFIG = Symbol('ESCALATION_CONFIG');

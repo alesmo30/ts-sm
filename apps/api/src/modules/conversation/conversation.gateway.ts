@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import {
   SubscribeMessage,
   WebSocketGateway,
@@ -8,6 +9,7 @@ import {
 import { ClientEventSchema, type ServerEvent } from '@ts-sm/shared';
 import type { WebSocket, RawData } from 'ws';
 
+import type { KnowledgeUpdatedEvent } from '../knowledge/ingestion.service';
 import type { SttSession } from '../voice/voice.service';
 
 import { ConversationService } from './conversation.service';
@@ -16,6 +18,12 @@ import { ConversationService } from './conversation.service';
 export class ConversationGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(ConversationGateway.name);
   private readonly sttSessions = new Map<WebSocket, SttSession>();
+  // El POST de ingesta llega por HTTP, sin socket propio — este registro es
+  // lo que permite que el separador de sistema aterrice en el hilo de un
+  // paciente que no pidió nada. Set porque la misma sesión puede tener dos
+  // pestañas abiertas (caso de la demo).
+  private readonly socketsBySession = new Map<string, Set<WebSocket>>();
+  private readonly sessionByClient = new Map<WebSocket, string>();
 
   constructor(private readonly conversationService: ConversationService) {}
 
@@ -37,8 +45,35 @@ export class ConversationGateway implements OnGatewayConnection, OnGatewayDiscon
     });
   }
 
+  /** Idempotente: cualquier evento con sessionId puede ser la primera señal de este cliente (sesión resumida sin start_conversation). */
+  private registerSocket(client: WebSocket, sessionId: string): void {
+    if (!this.socketsBySession.has(sessionId)) {
+      this.socketsBySession.set(sessionId, new Set());
+    }
+    this.socketsBySession.get(sessionId)?.add(client);
+    this.sessionByClient.set(client, sessionId);
+  }
+
   handleDisconnect(client: WebSocket): void {
     this.sttSessions.delete(client);
+    const sessionId = this.sessionByClient.get(client);
+    if (sessionId) {
+      this.socketsBySession.get(sessionId)?.delete(client);
+      this.sessionByClient.delete(client);
+    }
+  }
+
+  @OnEvent('knowledge.updated')
+  async handleKnowledgeUpdated(event: KnowledgeUpdatedEvent): Promise<void> {
+    const turns = await this.conversationService.createKnowledgeUpdateTurns(event.referenceName);
+
+    for (const { sessionId, turn } of turns) {
+      const sockets = this.socketsBySession.get(sessionId);
+      if (!sockets) continue;
+      for (const socket of sockets) {
+        this.emit(socket, { type: 'knowledge_updated', turn, kbVersion: event.kbVersion });
+      }
+    }
   }
 
   @SubscribeMessage('user_message')
@@ -55,6 +90,7 @@ export class ConversationGateway implements OnGatewayConnection, OnGatewayDiscon
 
     const event = parsed.data;
     if (event.type !== 'user_message') return;
+    this.registerSocket(client, event.sessionId);
 
     try {
       // El agente responde en voz aunque el paciente haya escrito: emitAudio se
@@ -84,6 +120,8 @@ export class ConversationGateway implements OnGatewayConnection, OnGatewayDiscon
       return;
     }
 
+    this.registerSocket(client, parsed.data.sessionId);
+
     try {
       await this.conversationService.startConversation(
         parsed.data.sessionId,
@@ -96,6 +134,18 @@ export class ConversationGateway implements OnGatewayConnection, OnGatewayDiscon
     }
   }
 
+  @SubscribeMessage('join_session')
+  handleJoinSession(client: WebSocket, payload: unknown): void {
+    const parsed = ClientEventSchema.safeParse(payload);
+
+    if (!parsed.success || parsed.data.type !== 'join_session') {
+      this.emit(client, { type: 'error', message: 'Evento join_session inválido.' });
+      return;
+    }
+
+    this.registerSocket(client, parsed.data.sessionId);
+  }
+
   @SubscribeMessage('audio_start')
   async handleAudioStart(client: WebSocket, payload: unknown): Promise<void> {
     const parsed = ClientEventSchema.safeParse(payload);
@@ -103,6 +153,7 @@ export class ConversationGateway implements OnGatewayConnection, OnGatewayDiscon
       this.emit(client, { type: 'error', message: 'Evento audio_start inválido.' });
       return;
     }
+    this.registerSocket(client, parsed.data.sessionId);
 
     try {
       const session = await this.conversationService.startVoiceInput();
@@ -144,6 +195,17 @@ export class ConversationGateway implements OnGatewayConnection, OnGatewayDiscon
     // vuelve sttStatus a 'idle' al recibir stt_result — no hace falta un
     // evento aparte para eso.
     this.emit(client, { type: 'stt_result', text: transcript });
+  }
+
+  @SubscribeMessage('escalation_cancelled')
+  async handleEscalationCancelled(client: WebSocket, payload: unknown): Promise<void> {
+    const parsed = ClientEventSchema.safeParse(payload);
+    if (!parsed.success || parsed.data.type !== 'escalation_cancelled') {
+      this.emit(client, { type: 'error', message: 'Evento escalation_cancelled inválido.' });
+      return;
+    }
+
+    await this.conversationService.cancelEscalation(parsed.data.sessionId);
   }
 
   private emit(client: WebSocket, event: ServerEvent): void {

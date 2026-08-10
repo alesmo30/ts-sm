@@ -25,6 +25,10 @@ export const sessions = appSchema.table(
     summary: text('summary'),
     structuredSummary: jsonb('structured_summary'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    email: text('email').notNull().default(''),
+    phone: text('phone').notNull().default(''),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    lastActivityAt: timestamp('last_activity_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('sessions_patient_name_idx').on(table.patientName),

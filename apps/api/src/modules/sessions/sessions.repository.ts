@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { CreateSessionInput, CreateTranscriptTurnInput, UpdateSessionInput } from '@ts-sm/shared';
-import { asc, desc, eq, ilike, or } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, isNull, lt, or } from 'drizzle-orm';
 
 import { DRIZZLE_CLIENT } from '../../database/database.module';
 import type { DrizzleClient } from '../../database/drizzle.client';
@@ -18,6 +18,10 @@ export interface SessionRow {
   summary: string | null;
   structuredSummary: unknown;
   createdAt: Date;
+  email: string;
+  phone: string;
+  closedAt: Date | null;
+  lastActivityAt: Date;
 }
 
 export interface TranscriptTurnRow {
@@ -57,6 +61,12 @@ export class SessionsRepository {
     return row;
   }
 
+  /** Sesiones vivas — closed_at IS NULL —, sin importar si tienen socket conectado ahora mismo. */
+  async findOpenSessionIds(): Promise<string[]> {
+    const rows = await this.db.select({ id: sessions.id }).from(sessions).where(isNull(sessions.closedAt));
+    return rows.map((row) => row.id);
+  }
+
   async findTurnsBySessionId(sessionId: string): Promise<TranscriptTurnRow[]> {
     return this.db
       .select()
@@ -94,6 +104,8 @@ export class SessionsRepository {
           kbVersion,
           summary: null,
           structuredSummary: null,
+          email: input.email,
+          phone: input.phone,
         })
         .returning();
 
@@ -131,8 +143,18 @@ export class SessionsRepository {
         })
         .returning();
 
+      await tx.update(sessions).set({ lastActivityAt: new Date() }).where(eq(sessions.id, sessionId));
+
       return created;
     });
+  }
+
+  async findStaleOpenSessionIds(olderThan: Date): Promise<string[]> {
+    const rows = await this.db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(and(isNull(sessions.closedAt), lt(sessions.lastActivityAt, olderThan)));
+    return rows.map((row) => row.id);
   }
 
   async remove(id: string): Promise<void> {
