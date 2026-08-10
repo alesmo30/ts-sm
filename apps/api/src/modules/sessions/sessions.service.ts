@@ -103,4 +103,21 @@ export class SessionsService {
 
     return toSession(updated);
   }
+
+  /** SPEC 10 — lee el estado de triage crudo, sin pasar por `toSession()`: `triage_level`
+   * y `triage_areas` son registro interno del servidor, no salen al contrato `Session`. */
+  async getTriageState(id: string): Promise<{ triageLevel: 'green' | 'yellow' | 'red'; triageAreas: unknown }> {
+    const session = await this.repository.findById(id);
+    if (!session) {
+      throw new NotFoundException(`Sesión ${id} no encontrada`);
+    }
+    return { triageLevel: session.triageLevel, triageAreas: session.triageAreas };
+  }
+
+  async updateTriage(
+    id: string,
+    patch: { triageLevel: 'green' | 'yellow' | 'red'; triageAreas: unknown; status: 'ok' | 'attn' | 'fail' },
+  ): Promise<void> {
+    await this.repository.updateTriage(id, patch);
+  }
 }

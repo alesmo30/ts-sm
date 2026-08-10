@@ -47,6 +47,17 @@ function fakeRedFlagDetector(result: { triggered: boolean; score?: number; match
   } as unknown as RedFlagDetectorService;
 }
 
+// SPEC 10 — todos los mocks de SessionsService de este archivo predatan el
+// triage. Sesión sin señal previa: green, sin áreas cubiertas — es lo que un
+// registro sembrado desde antes de este spec tendría.
+function withTriageDefaults<T extends object>(sessionsService: T): T {
+  return {
+    getTriageState: jest.fn(() => Promise.resolve({ triageLevel: 'green' as const, triageAreas: {} })),
+    updateTriage: jest.fn(() => Promise.resolve()),
+    ...sessionsService,
+  };
+}
+
 class FakePort implements LlmPort {
   readonly providerName = 'mock' as const;
   readonly modelId = 'mock';
@@ -124,7 +135,7 @@ describe('ConversationService', () => {
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: port },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
@@ -204,7 +215,7 @@ describe('ConversationService', () => {
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FakePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: retrievalService },
@@ -250,7 +261,7 @@ describe('ConversationService', () => {
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FakePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: retrievalService },
@@ -308,7 +319,7 @@ describe('ConversationService', () => {
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FakePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: retrievalService },
@@ -389,7 +400,7 @@ describe('ConversationService', () => {
           ConversationService,
           LlmMetricsService,
           { provide: EscalationService, useValue: fakeEscalationService() },
-          { provide: SessionsService, useValue: sessionsService },
+          { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
           { provide: LlmPort, useValue: new VariationsPort() },
           { provide: VoiceService, useValue: fakeVoiceService },
           { provide: RetrievalService, useValue: retrievalService },
@@ -428,7 +439,7 @@ describe('ConversationService', () => {
           ConversationService,
           LlmMetricsService,
           { provide: EscalationService, useValue: fakeEscalationService() },
-          { provide: SessionsService, useValue: sessionsService },
+          { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
           { provide: LlmPort, useValue: port },
           { provide: VoiceService, useValue: fakeVoiceService },
           { provide: RetrievalService, useValue: retrievalService },
@@ -456,7 +467,7 @@ describe('ConversationService', () => {
           ConversationService,
           LlmMetricsService,
           { provide: EscalationService, useValue: fakeEscalationService() },
-          { provide: SessionsService, useValue: sessionsService },
+          { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
           { provide: LlmPort, useValue: port },
           { provide: VoiceService, useValue: fakeVoiceService },
           { provide: RetrievalService, useValue: retrievalService },
@@ -474,6 +485,245 @@ describe('ConversationService', () => {
       expect(citationRelevance.filterRelevant).toHaveBeenCalledTimes(1);
       expect(events.some((event) => (event as { type: string }).type === 'error')).toBe(false);
       expect(sessionsService.addTurn.mock.calls[1][1]).toMatchObject({ who: 'assistant', citations: [] });
+    });
+  });
+
+  describe('triage clínico determinístico (SPEC 10)', () => {
+    function makeStatefulSessionsService() {
+      const savedTurns: TranscriptTurn[] = [];
+      let seq = 0;
+      let triageLevel: 'green' | 'yellow' | 'red' = 'green';
+      let triageAreas: unknown = {};
+      return {
+        addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+          const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text, citations: input.citations });
+          savedTurns.push(turn);
+          return Promise.resolve(turn);
+        }),
+        getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+        getTriageState: jest.fn(() => Promise.resolve({ triageLevel, triageAreas })),
+        updateTriage: jest.fn(
+          (_id: string, patch: { triageLevel: 'green' | 'yellow' | 'red'; triageAreas: unknown; status: string }) => {
+            triageLevel = patch.triageLevel;
+            triageAreas = patch.triageAreas;
+            return Promise.resolve();
+          },
+        ),
+      };
+    }
+
+    it('fiebre de 39 y dolor de 9 escala por el triage determinístico, sin marca del LLM ni backstop', async () => {
+      const sessionsService = makeStatefulSessionsService();
+      const escalationService = fakeEscalationService();
+      (escalationService.escalate as jest.Mock).mockResolvedValue(true);
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          ConversationService,
+          LlmMetricsService,
+          { provide: EscalationService, useValue: escalationService },
+          { provide: SessionsService, useValue: sessionsService },
+          { provide: LlmPort, useValue: new FakePort() },
+          { provide: VoiceService, useValue: fakeVoiceService },
+          { provide: RetrievalService, useValue: fakeRetrievalService() },
+          { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector({ triggered: false }) },
+          { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+        ],
+      }).compile();
+
+      const service = moduleRef.get(ConversationService);
+      const escalated = await service.handleUserMessage(SESSION_ID, 'fiebre de 39 y dolor de 9', false, () => {});
+
+      expect(escalated).toBe(true);
+      expect(escalationService.escalate).toHaveBeenCalledWith(SESSION_ID, 'red_flag');
+      expect(sessionsService.updateTriage).toHaveBeenCalledWith(
+        SESSION_ID,
+        expect.objectContaining({ triageLevel: 'red', status: 'fail' }),
+      );
+    });
+
+    it('un turno sin señales de alarma persiste triageLevel green y status ok, sin escalar', async () => {
+      const sessionsService = makeStatefulSessionsService();
+      const escalationService = fakeEscalationService();
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          ConversationService,
+          LlmMetricsService,
+          { provide: EscalationService, useValue: escalationService },
+          { provide: SessionsService, useValue: sessionsService },
+          { provide: LlmPort, useValue: new FakePort() },
+          { provide: VoiceService, useValue: fakeVoiceService },
+          { provide: RetrievalService, useValue: fakeRetrievalService() },
+          { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+          { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+        ],
+      }).compile();
+
+      const service = moduleRef.get(ConversationService);
+      const escalated = await service.handleUserMessage(SESSION_ID, 'dolor 2, sin fiebre, todo normal', false, () => {});
+
+      expect(escalated).toBe(false);
+      expect(escalationService.escalate).not.toHaveBeenCalled();
+      expect(sessionsService.updateTriage).toHaveBeenCalledWith(
+        SESSION_ID,
+        expect.objectContaining({ triageLevel: 'green', status: 'ok' }),
+      );
+    });
+
+    it('dos áreas en amarillo en el mismo turno elevan la sesión a rojo por acumulación', async () => {
+      const sessionsService = makeStatefulSessionsService();
+      const escalationService = fakeEscalationService();
+      (escalationService.escalate as jest.Mock).mockResolvedValue(true);
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          ConversationService,
+          LlmMetricsService,
+          { provide: EscalationService, useValue: escalationService },
+          { provide: SessionsService, useValue: sessionsService },
+          { provide: LlmPort, useValue: new FakePort() },
+          { provide: VoiceService, useValue: fakeVoiceService },
+          { provide: RetrievalService, useValue: fakeRetrievalService() },
+          { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+          { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+        ],
+      }).compile();
+
+      const service = moduleRef.get(ConversationService);
+      // dolor 7 (amarillo) + fiebre 38 (amarillo) en el mismo turno: dos amarillos hacen un rojo.
+      const escalated = await service.handleUserMessage(SESSION_ID, 'dolor de 7 y fiebre de 38', false, () => {});
+
+      expect(escalated).toBe(true);
+      expect(sessionsService.updateTriage).toHaveBeenCalledWith(
+        SESSION_ID,
+        expect.objectContaining({ triageLevel: 'red' }),
+      );
+    });
+
+    it('el nivel de triage nunca baja: un turno sin señales tras uno rojo mantiene la sesión en rojo', async () => {
+      const sessionsService = makeStatefulSessionsService();
+      const escalationService = fakeEscalationService();
+      (escalationService.escalate as jest.Mock).mockResolvedValue(true);
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          ConversationService,
+          LlmMetricsService,
+          { provide: EscalationService, useValue: escalationService },
+          { provide: SessionsService, useValue: sessionsService },
+          { provide: LlmPort, useValue: new FakePort() },
+          { provide: VoiceService, useValue: fakeVoiceService },
+          { provide: RetrievalService, useValue: fakeRetrievalService() },
+          { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+          { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+        ],
+      }).compile();
+
+      const service = moduleRef.get(ConversationService);
+      await service.handleUserMessage(SESSION_ID, 'fiebre de 39', false, () => {});
+      await service.handleUserMessage(SESSION_ID, 'todo tranquilo, gracias', false, () => {});
+
+      const calls = (sessionsService.updateTriage as jest.Mock).mock.calls;
+      const lastCall = calls[calls.length - 1];
+      expect(lastCall[1]).toMatchObject({ triageLevel: 'red', status: 'fail' });
+    });
+
+    it('escalated implica nivel rojo venga de donde venga: la marca del LLM sin señal numérica también sube triage_level', async () => {
+      const sessionsService = makeStatefulSessionsService();
+      const escalationService = fakeEscalationService();
+      (escalationService.escalate as jest.Mock).mockResolvedValue(true);
+
+      class EscalatingPort extends FakePort {
+        async *stream(): AsyncIterable<LlmDelta> {
+          yield { type: 'text', text: 'Ya aviso a tu médico.\n[[ESCALAR]]' };
+          yield {
+            type: 'done',
+            completion: {
+              text: 'Ya aviso a tu médico.\n[[ESCALAR]]',
+              model: 'mock',
+              usage: { inputTokens: 5, outputTokens: 3, costUsd: 0 },
+              latencyMs: 10,
+            },
+          };
+        }
+      }
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          ConversationService,
+          LlmMetricsService,
+          { provide: EscalationService, useValue: escalationService },
+          { provide: SessionsService, useValue: sessionsService },
+          { provide: LlmPort, useValue: new EscalatingPort() },
+          { provide: VoiceService, useValue: fakeVoiceService },
+          { provide: RetrievalService, useValue: fakeRetrievalService() },
+          { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+          { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+        ],
+      }).compile();
+
+      const service = moduleRef.get(ConversationService);
+      // Sin dígitos ni palabras reconocidas por triage.rules — solo la marca del LLM.
+      const escalated = await service.handleUserMessage(SESSION_ID, 'quiero hablar con un médico', false, () => {});
+
+      expect(escalated).toBe(true);
+      const calls = (sessionsService.updateTriage as jest.Mock).mock.calls;
+      const lastCall = calls[calls.length - 1];
+      expect(lastCall[1]).toMatchObject({ triageLevel: 'red', status: 'fail' });
+    });
+
+    it('el cierre agrupado cubre las áreas nombradas como grouped, no como individual', async () => {
+      // Regresión: la pregunta de confirmación agrupada nombra las áreas
+      // pendientes por su etiqueta ("herida, apetito y sueño") — sin la
+      // corrección, detectAskedAreas() las reconocía como preguntadas una a
+      // una y las marcaba 'individual' antes de que aplicara 'grouped'.
+      const sessionsService = makeStatefulSessionsService();
+
+      class GroupedConfirmationPort extends FakePort {
+        async *stream(): AsyncIterable<LlmDelta> {
+          yield {
+            type: 'text',
+            text: 'Entonces herida, apetito y sueño, ¿todo sin novedad en esas áreas?\n[[CONFIRMACION_AGRUPADA]]',
+          };
+          yield {
+            type: 'done',
+            completion: {
+              text: 'Entonces herida, apetito y sueño, ¿todo sin novedad en esas áreas?\n[[CONFIRMACION_AGRUPADA]]',
+              model: 'mock',
+              usage: { inputTokens: 5, outputTokens: 3, costUsd: 0 },
+              latencyMs: 10,
+            },
+          };
+        }
+      }
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          ConversationService,
+          LlmMetricsService,
+          { provide: EscalationService, useValue: fakeEscalationService() },
+          { provide: SessionsService, useValue: sessionsService },
+          { provide: LlmPort, useValue: new GroupedConfirmationPort() },
+          { provide: VoiceService, useValue: fakeVoiceService },
+          { provide: RetrievalService, useValue: fakeRetrievalService() },
+          { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+          { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+        ],
+      }).compile();
+
+      const service = moduleRef.get(ConversationService);
+      // Turno 1: el paciente dice que todo está bien, el asistente agrupa las
+      // pendientes y emite la marca (capturada por GroupedConfirmationPort arriba).
+      await service.handleUserMessage(SESSION_ID, 'todo bien por lo demás', false, () => {});
+      // Turno 2: confirma sin mencionar ninguna de las áreas por su nombre.
+      await service.handleUserMessage(SESSION_ID, 'sí, todo bien con eso también', false, () => {});
+
+      const calls = (sessionsService.updateTriage as jest.Mock).mock.calls;
+      const lastAreas = calls[calls.length - 1][1].triageAreas as Record<string, { covered: string }>;
+      expect(lastAreas.wound.covered).toBe('grouped');
+      expect(lastAreas.appetite.covered).toBe('grouped');
+      expect(lastAreas.sleep.covered).toBe('grouped');
     });
   });
 
@@ -521,7 +771,7 @@ describe('ConversationService', () => {
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new NoReferencePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService(fakeCitations) },
@@ -586,7 +836,7 @@ describe('ConversationService', () => {
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new SentencePort() },
         { provide: VoiceService, useValue: speakingVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
@@ -644,7 +894,7 @@ describe('ConversationService', () => {
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FakePort() },
         { provide: VoiceService, useValue: speakingVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
@@ -709,7 +959,7 @@ describe('ConversationService', () => {
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: escalationService },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new EscalatingPort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
@@ -763,7 +1013,7 @@ describe('ConversationService', () => {
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: escalationService },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FakePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
@@ -807,7 +1057,7 @@ describe('ConversationService', () => {
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: escalationService },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FakePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
@@ -861,7 +1111,7 @@ describe('ConversationService', () => {
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: escalationService },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new NoReferencePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
@@ -910,7 +1160,7 @@ describe('ConversationService', () => {
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: escalationService },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FakePort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
@@ -951,7 +1201,7 @@ describe('ConversationService', () => {
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FailingPort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
@@ -977,19 +1227,31 @@ describe('ConversationService', () => {
 
     const sessionsService = {
       addTurn: jest.fn(),
-      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns } as unknown as SessionDetail)),
-      update: jest.fn((_id: string, patch: { status?: string; summary?: string | null; closedAt?: Date | null }) =>
-        Promise.resolve({ id: SESSION_ID, status: patch.status, summary: patch.summary } as unknown as Session),
+      getDetail: jest.fn(() =>
+        Promise.resolve({ id: SESSION_ID, turns, createdAt: new Date(Date.now() - 60_000) } as unknown as SessionDetail),
       ),
+      update: jest.fn((_id: string, patch: unknown) => Promise.resolve({ id: SESSION_ID, ...(patch as object) } as unknown as Session)),
     };
+
+    class SummaryDraftPort extends FakePort {
+      structured<T>(): Promise<LlmStructured<T>> {
+        return Promise.resolve({
+          data: { summary: 'Resumen de una línea.', recommendations: [], alerts: [] } as unknown as T,
+          model: 'mock',
+          usage: { inputTokens: 5, outputTokens: 5, costUsd: 0 },
+          latencyMs: 10,
+          usedFallbackParser: false,
+        });
+      }
+    }
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
-        { provide: SessionsService, useValue: sessionsService },
-        { provide: LlmPort, useValue: new FakePort() },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
+        { provide: LlmPort, useValue: new SummaryDraftPort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
         { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
@@ -1004,27 +1266,58 @@ describe('ConversationService', () => {
       status: 'ok',
       summary: 'Resumen de una línea.',
       closedAt: expect.any(Date),
+      structuredSummary: {
+        recommendations: [],
+        alerts: [],
+        escalated: false,
+        coverage: {
+          covered: [],
+          pending: ['dolor', 'fiebre', 'movilidad', 'herida', 'apetito', 'sueño'],
+          grouped: false,
+        },
+        metrics: {
+          turns: 2,
+          durationSeconds: expect.any(Number),
+          ttftMs: null,
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+        },
+      },
     });
     expect(result?.status).toBe('ok');
   });
 
-  it('closeSession cierra la sesión con summary null si el LLM falla', async () => {
+  it('closeSession de una sesión roja deja structuredSummary.escalated:true y status:fail, del triage — no del texto del modelo', async () => {
     const turns: TranscriptTurn[] = [
-      fakeTurn({ seq: 0, who: 'patient', text: 'hola' }),
-      fakeTurn({ seq: 1, who: 'assistant', text: 'hola, ¿en qué te ayudo?' }),
+      fakeTurn({ seq: 0, who: 'patient', text: 'fiebre de 39' }),
+      fakeTurn({ seq: 1, who: 'assistant', text: 'Ya aviso a tu médico.' }),
     ];
 
     const sessionsService = {
       addTurn: jest.fn(),
-      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns } as unknown as SessionDetail)),
-      update: jest.fn((_id: string, patch: { status?: string; summary?: string | null; closedAt?: Date | null }) =>
-        Promise.resolve({ id: SESSION_ID, status: patch.status, summary: patch.summary } as unknown as Session),
+      getDetail: jest.fn(() =>
+        Promise.resolve({ id: SESSION_ID, turns, createdAt: new Date(Date.now() - 60_000) } as unknown as SessionDetail),
       ),
+      update: jest.fn((_id: string, patch: unknown) => Promise.resolve({ id: SESSION_ID, ...(patch as object) } as unknown as Session)),
+      getTriageState: jest.fn(() =>
+        Promise.resolve({
+          triageLevel: 'red' as const,
+          triageAreas: { fever: { covered: 'individual', level: 'red', value: 39 } },
+        }),
+      ),
+      updateTriage: jest.fn(() => Promise.resolve()),
     };
 
-    class FailingCompletePort extends FakePort {
-      complete(): Promise<LlmCompletion> {
-        return Promise.reject(new Error('proveedor caído'));
+    class SummaryDraftPort extends FakePort {
+      structured<T>(): Promise<LlmStructured<T>> {
+        return Promise.resolve({
+          data: { summary: 'Fiebre alta reportada, se avisó al médico.', recommendations: [], alerts: ['Fiebre de 39°C'] } as unknown as T,
+          model: 'mock',
+          usage: { inputTokens: 5, outputTokens: 5, costUsd: 0 },
+          latencyMs: 10,
+          usedFallbackParser: false,
+        });
       }
     }
 
@@ -1034,7 +1327,7 @@ describe('ConversationService', () => {
         LlmMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: sessionsService },
-        { provide: LlmPort, useValue: new FailingCompletePort() },
+        { provide: LlmPort, useValue: new SummaryDraftPort() },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
         { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
@@ -1045,11 +1338,58 @@ describe('ConversationService', () => {
     const service = moduleRef.get(ConversationService);
     const result = await service.closeSession(SESSION_ID);
 
-    expect(sessionsService.update).toHaveBeenCalledWith(SESSION_ID, {
-      status: 'ok',
-      summary: null,
-      closedAt: expect.any(Date),
-    });
+    const updateCall = (sessionsService.update as jest.Mock).mock.calls[0][1] as {
+      status: string;
+      structuredSummary: { escalated: boolean; coverage: { covered: string[]; pending: string[] } };
+    };
+    expect(updateCall.status).toBe('fail');
+    expect(updateCall.structuredSummary.escalated).toBe(true);
+    expect(updateCall.structuredSummary.coverage.covered).toEqual(['fiebre']);
+    expect(updateCall.structuredSummary.coverage.pending).toEqual(['dolor', 'movilidad', 'herida', 'apetito', 'sueño']);
+    expect(result?.status).toBe('fail');
+  });
+
+  it('closeSession cierra la sesión con summary null si el LLM falla', async () => {
+    const turns: TranscriptTurn[] = [
+      fakeTurn({ seq: 0, who: 'patient', text: 'hola' }),
+      fakeTurn({ seq: 1, who: 'assistant', text: 'hola, ¿en qué te ayudo?' }),
+    ];
+
+    const sessionsService = {
+      addTurn: jest.fn(),
+      getDetail: jest.fn(() =>
+        Promise.resolve({ id: SESSION_ID, turns, createdAt: new Date(Date.now() - 60_000) } as unknown as SessionDetail),
+      ),
+      update: jest.fn((_id: string, patch: unknown) => Promise.resolve({ id: SESSION_ID, ...(patch as object) } as unknown as Session)),
+    };
+
+    class FailingStructuredPort extends FakePort {
+      structured<T>(): Promise<LlmStructured<T>> {
+        return Promise.reject(new Error('proveedor caído'));
+      }
+    }
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        { provide: EscalationService, useValue: fakeEscalationService() },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
+        { provide: LlmPort, useValue: new FailingStructuredPort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    const result = await service.closeSession(SESSION_ID);
+
+    expect(sessionsService.update).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({ status: 'ok', summary: null, closedAt: expect.any(Date) }),
+    );
     expect(result?.status).toBe('ok');
   });
 
@@ -1058,21 +1398,21 @@ describe('ConversationService', () => {
 
     const sessionsService = {
       addTurn: jest.fn(),
-      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns } as unknown as SessionDetail)),
-      update: jest.fn((_id: string, patch: { status?: string; summary?: string | null; closedAt?: Date | null }) =>
-        Promise.resolve({ id: SESSION_ID, status: patch.status, summary: patch.summary } as unknown as Session),
+      getDetail: jest.fn(() =>
+        Promise.resolve({ id: SESSION_ID, turns, createdAt: new Date(Date.now() - 60_000) } as unknown as SessionDetail),
       ),
+      update: jest.fn((_id: string, patch: unknown) => Promise.resolve({ id: SESSION_ID, ...(patch as object) } as unknown as Session)),
     };
 
     const port = new FakePort();
-    const completeSpy = jest.spyOn(port, 'complete');
+    const structuredSpy = jest.spyOn(port, 'structured');
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: port },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },
@@ -1084,12 +1424,11 @@ describe('ConversationService', () => {
     const service = moduleRef.get(ConversationService);
     await service.closeSession(SESSION_ID);
 
-    expect(completeSpy).not.toHaveBeenCalled();
-    expect(sessionsService.update).toHaveBeenCalledWith(SESSION_ID, {
-      status: 'ok',
-      summary: null,
-      closedAt: expect.any(Date),
-    });
+    expect(structuredSpy).not.toHaveBeenCalled();
+    expect(sessionsService.update).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({ status: 'ok', summary: null, closedAt: expect.any(Date) }),
+    );
   });
 
   it('closeSession borra la sesión y no genera resumen si el paciente nunca escribió', async () => {
@@ -1108,7 +1447,7 @@ describe('ConversationService', () => {
         ConversationService,
         LlmMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
-        { provide: SessionsService, useValue: sessionsService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: port },
         { provide: VoiceService, useValue: fakeVoiceService },
         { provide: RetrievalService, useValue: fakeRetrievalService() },

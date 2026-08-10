@@ -22,6 +22,8 @@ export interface SessionRow {
   phone: string;
   closedAt: Date | null;
   lastActivityAt: Date;
+  triageLevel: 'green' | 'yellow' | 'red';
+  triageAreas: unknown;
 }
 
 export interface TranscriptTurnRow {
@@ -169,5 +171,15 @@ export class SessionsRepository {
     const [updated] = await this.db.update(sessions).set(patch).where(eq(sessions.id, id)).returning();
 
     return updated;
+  }
+
+  /** SPEC 10 — `triage_level`/`triage_areas` no salen al contrato (`UpdateSessionInput`),
+   * así que se escriben por un camino aparte. `status` viaja junto porque el mapeo entre
+   * los dos es fijo y se escribe en la misma transacción implícita del UPDATE. */
+  async updateTriage(
+    id: string,
+    patch: { triageLevel: 'green' | 'yellow' | 'red'; triageAreas: unknown; status: 'ok' | 'attn' | 'fail' },
+  ): Promise<void> {
+    await this.db.update(sessions).set(patch).where(eq(sessions.id, id));
   }
 }

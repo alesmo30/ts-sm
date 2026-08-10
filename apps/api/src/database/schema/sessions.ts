@@ -24,6 +24,8 @@ export const sessions = appSchema.table(
     kbVersion: integer('kb_version').notNull().default(1),
     summary: text('summary'),
     structuredSummary: jsonb('structured_summary'),
+    triageLevel: text('triage_level', { enum: ['green', 'yellow', 'red'] }).notNull().default('green'),
+    triageAreas: jsonb('triage_areas').notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     email: text('email').notNull().default(''),
     phone: text('phone').notNull().default(''),

@@ -21,6 +21,8 @@ function makeSessionRow(overrides: Partial<SessionRow> = {}): SessionRow {
     phone: '3001234567',
     closedAt: null,
     lastActivityAt: new Date('2026-08-04T09:12:00Z'),
+    triageLevel: 'green',
+    triageAreas: {},
     ...overrides,
   };
 }

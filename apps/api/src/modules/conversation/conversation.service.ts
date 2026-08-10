@@ -1,8 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { Citation, ServerEvent, Session, TranscriptTurn } from '@ts-sm/shared';
+import type { Citation, ServerEvent, Session, SessionSummary, TranscriptTurn } from '@ts-sm/shared';
 
 import { detectEscalationReason, EscalationService } from '../escalation/escalation.service';
 import { RedFlagDetectorService } from '../escalation/red-flag-detector.service';
+import {
+  accumulatedLevel,
+  ALL_AREAS,
+  AREA_LABELS,
+  detectAskedAreas,
+  evaluate as evaluateTriage,
+  maxLevel,
+  mergeTriageAreas,
+  pendingAreas,
+  type TriageAreas,
+  type TriageLevel,
+} from '../escalation/triage.rules';
 import { CitationRelevanceService } from '../knowledge/citation-relevance.service';
 import { RetrievalService } from '../knowledge/retrieval.service';
 import { LlmPort } from '../llm/llm.port';
@@ -11,12 +23,27 @@ import { LlmMetricsService } from '../llm/metrics';
 import { SessionsService } from '../sessions/sessions.service';
 import { PhraseSegmenter, VoiceService, type SttSession } from '../voice/voice.service';
 
-import { MULTI_QUERY_REPHRASE_PROMPT, QueryVariationsSchema, SUMMARY_PROMPT, buildGreetingTrigger, buildSystemPrompt } from './conversation.prompt';
+import {
+  buildGreetingTrigger,
+  buildSystemPrompt,
+  MULTI_QUERY_REPHRASE_PROMPT,
+  QueryVariationsSchema,
+  SUMMARY_DRAFT_PROMPT,
+  SummaryDraftSchema,
+} from './conversation.prompt';
 import { buildKnowledgeUpdateText } from './system-turns';
-import { EscalationMarkerFilter, NoReferenceMarkerFilter, sanitizeAssistantText } from './text-sanitizer';
+import { EscalationMarkerFilter, GroupedConfirmationMarkerFilter, NoReferenceMarkerFilter, sanitizeAssistantText } from './text-sanitizer';
 
 const ESCALATION_COUNTDOWN_SECONDS = 20;
 const REFRESH_EVERY_N_TURNS = 3;
+
+// SPEC 10 — mapeo fijo entre el vocabulario clínico del triage y el semáforo
+// que sessions.status ya expone y que SessionTable/PriorityTable ya pintan.
+const TRIAGE_TO_STATUS: Record<TriageLevel, 'ok' | 'attn' | 'fail'> = {
+  green: 'ok',
+  yellow: 'attn',
+  red: 'fail',
+};
 
 // Tokens de afirmación cerrados a propósito (no LLM, no embeddings — REGLAS.md
 // prohíbe una segunda llamada generativa solo para clasificar un "sí"): una
@@ -86,6 +113,12 @@ export class ConversationService {
   // corrección post-SPEC 08). Estado efímero de proceso, igual que
   // socketsBySession del gateway; se limpia al cerrar la sesión.
   private readonly pendingKnowledgeGapBySession = new Map<string, boolean>();
+
+  // SPEC 10 — marca, por sesión, que el turno anterior del asistente agrupó las
+  // áreas pendientes del guion clínico en una sola pregunta de confirmación. Si
+  // el paciente confirma en el turno siguiente sin mencionar ninguna alarma, esas
+  // áreas quedan cubiertas por confirmación agrupada en vez de una por una.
+  private readonly pendingGroupedConfirmationBySession = new Map<string, boolean>();
 
   constructor(
     private readonly sessionsService: SessionsService,
@@ -178,6 +211,37 @@ export class ConversationService {
     const lastAssistantTurn = [...detail.turns].reverse().find((turn) => turn.who === 'assistant');
     const isGreeting = lastAssistantTurn?.seq === 0;
     const retrievalQuery = [isGreeting ? null : lastAssistantTurn?.text, text].filter(Boolean).join(' ');
+
+    // SPEC 10 — triage determinístico: se corre sobre el texto del paciente en
+    // cada turno, independiente de la respuesta del LLM. `covered`/`triage_level`
+    // solo pueden subir de severidad (RC.3) — nunca se leen para bajarlos.
+    const triageSignals = evaluateTriage(text);
+    const groupedConfirmationWasPending = this.pendingGroupedConfirmationBySession.get(sessionId) ?? false;
+    this.pendingGroupedConfirmationBySession.delete(sessionId);
+    // La pregunta de confirmación agrupada nombra las áreas pendientes por su
+    // etiqueta ("herida, apetito y sueño, ¿todo sin novedad?") para que el
+    // paciente sepa a qué está respondiendo — pero eso significa que
+    // detectAskedAreas() las reconocería como "preguntadas una a una" y las
+    // cubriría como 'individual' antes de que mergeTriageAreas() llegue a
+    // aplicar `grouped`. Se omite en este turno: esas áreas las cubre
+    // exclusivamente la rama `grouped` de mergeTriageAreas().
+    const askedAreas = groupedConfirmationWasPending ? [] : detectAskedAreas(lastAssistantTurn?.text ?? '');
+
+    const triageStateBefore = await this.sessionsService.getTriageState(sessionId);
+    const triageAreasBefore = (triageStateBefore.triageAreas as TriageAreas) ?? {};
+    const nextTriageAreas = mergeTriageAreas(triageAreasBefore, triageSignals, askedAreas, groupedConfirmationWasPending);
+    const nextTriageLevel = maxLevel([
+      triageStateBefore.triageLevel,
+      ...triageSignals.map((signal) => signal.level),
+      accumulatedLevel(nextTriageAreas),
+    ]);
+    await this.sessionsService.updateTriage(sessionId, {
+      triageLevel: nextTriageLevel,
+      triageAreas: nextTriageAreas,
+      status: TRIAGE_TO_STATUS[nextTriageLevel],
+    });
+    const triageEscalatesThisTurn = nextTriageLevel === 'red';
+    this.logger.log(`triage level=${nextTriageLevel} señales=${triageSignals.map((s) => s.area).join(',') || 'ninguna'}`);
     const isFarewell = looksLikeFarewell(text);
     const rawCitations = isFarewell ? [] : await this.hybridSearch(retrievalQuery);
     // El retrieval léxico+semántico siempre trae top-K en cuanto coincide algo,
@@ -209,7 +273,7 @@ export class ConversationService {
     }
 
     const messages: LlmMessage[] = [
-      { role: 'system', content: buildSystemPrompt(citations) },
+      { role: 'system', content: buildSystemPrompt(citations, pendingAreas(nextTriageAreas)) },
       ...detail.turns.map(turnToLlmMessage),
     ];
 
@@ -222,12 +286,31 @@ export class ConversationService {
       this.redFlagDetector.check(text),
     ]);
     this.logger.log(`red-flag backstop score=${backstop.score.toFixed(3)} triggered=${backstop.triggered}`);
-    const escalationDetected = streamResult.escalated || backstop.triggered || consentAccepted;
+    // Tercer disparador (SPEC 10): nivel rojo de las reglas determinísticas entra
+    // al mismo OR que la marca del LLM y el backstop semántico. escalate() es
+    // idempotente por UNIQUE(session_id) — llamarlo en cada turno rojo no duplica fila.
+    const escalationDetected = streamResult.escalated || backstop.triggered || consentAccepted || triageEscalatesThisTurn;
+
+    // "escalated implica nivel rojo, venga la escalada de donde venga" (decisión
+    // de SPEC 10): si la marca del LLM o el backstop semántico dispararon la
+    // escalada sin que las reglas numéricas por sí solas llegaran a rojo, el
+    // triage de la sesión sube igual — nunca puede quedar una sesión escalada
+    // pintada en verde o amarillo en el dashboard del médico.
+    if (escalationDetected && nextTriageLevel !== 'red') {
+      await this.sessionsService.updateTriage(sessionId, {
+        triageLevel: 'red',
+        triageAreas: nextTriageAreas,
+        status: 'fail',
+      });
+    }
 
     // El turno que acaba de generarse es el que decide si HAY que esperar un
     // "sí" en el próximo — no el que se acaba de consumir arriba.
     if (streamResult.noReferenceDetected) {
       this.pendingKnowledgeGapBySession.set(sessionId, true);
+    }
+    if (streamResult.groupedConfirmationDetected) {
+      this.pendingGroupedConfirmationBySession.set(sessionId, true);
     }
 
     if (escalationDetected) {
@@ -295,8 +378,12 @@ export class ConversationService {
     emit({ type: 'greeting_start' });
 
     const session = await this.sessionsService.getDetail(sessionId);
+    const triageState = await this.sessionsService.getTriageState(sessionId);
     const messages: LlmMessage[] = [
-      { role: 'system', content: buildSystemPrompt([]) },
+      {
+        role: 'system',
+        content: buildSystemPrompt([], pendingAreas((triageState.triageAreas as TriageAreas) ?? {})),
+      },
       { role: 'user', content: buildGreetingTrigger(session.patientName, session.procedure) },
     ];
 
@@ -310,7 +397,7 @@ export class ConversationService {
     emit: (event: ServerEvent) => void,
     emitAudio?: (chunk: Buffer) => void,
     citations: Citation[] = [],
-  ): Promise<{ escalated: boolean; noReferenceDetected: boolean }> {
+  ): Promise<{ escalated: boolean; noReferenceDetected: boolean; groupedConfirmationDetected: boolean }> {
     // Responde en voz siempre que la voz esté configurada, sin importar si el
     // turno del paciente fue hablado o escrito — el agente habla y escribe a la vez.
     const shouldSpeak = this.voiceService.isAvailable && !!emitAudio;
@@ -340,6 +427,7 @@ export class ConversationService {
 
     const escalationFilter = new EscalationMarkerFilter();
     const noReferenceFilter = new NoReferenceMarkerFilter();
+    const groupedConfirmationFilter = new GroupedConfirmationMarkerFilter();
 
     return this.metrics.runInScope(async () => {
       const start = Date.now();
@@ -353,12 +441,12 @@ export class ConversationService {
               this.metrics.markFirstToken();
               firstTokenSeen = true;
             }
-            // Las marcas [[ESCALAR]] y [[SIN_REFERENCIA]] se filtran sobre el
-            // texto crudo del LLM, antes del sanitizador de markdown, para
-            // poder retener una cola partida entre dos chunks sin arriesgar
-            // que se cuelen en la burbuja. Son mutuamente excluyentes por
-            // diseño del prompt, así que encadenar los dos filtros es seguro.
-            const safeRaw = noReferenceFilter.push(escalationFilter.push(delta.text));
+            // Las marcas [[ESCALAR]], [[SIN_REFERENCIA]] y [[CONFIRMACION_AGRUPADA]]
+            // se filtran sobre el texto crudo del LLM, antes del sanitizador de
+            // markdown, para poder retener una cola partida entre dos chunks sin
+            // arriesgar que se cuelen en la burbuja. Son mutuamente excluyentes por
+            // diseño del prompt, así que encadenar los tres filtros es seguro.
+            const safeRaw = groupedConfirmationFilter.push(noReferenceFilter.push(escalationFilter.push(delta.text)));
             const clean = sanitizeAssistantText(safeRaw);
             assembled += clean;
             if (clean) emit({ type: 'delta', text: clean });
@@ -369,7 +457,9 @@ export class ConversationService {
               }
             }
           } else if (delta.type === 'done') {
-            const flushedRaw = noReferenceFilter.push(escalationFilter.flush()) + noReferenceFilter.flush();
+            const flushedRaw =
+              groupedConfirmationFilter.push(noReferenceFilter.push(escalationFilter.flush()) + noReferenceFilter.flush()) +
+              groupedConfirmationFilter.flush();
             const flushedClean = sanitizeAssistantText(flushedRaw);
             if (flushedClean) {
               assembled += flushedClean;
@@ -424,6 +514,7 @@ export class ConversationService {
         return {
           escalated: escalationFilter.escalationDetected,
           noReferenceDetected: noReferenceFilter.noReferenceDetected,
+          groupedConfirmationDetected: groupedConfirmationFilter.groupedConfirmationDetected,
         };
       } catch (error) {
         this.metrics.recordCall({
@@ -439,7 +530,7 @@ export class ConversationService {
           `provider=${this.llmPort.providerName} model=${this.llmPort.modelId} method=stream falló: ${error instanceof Error ? error.message : String(error)}`,
         );
         emit({ type: 'error', message: 'No fue posible generar una respuesta. Intenta de nuevo.' });
-        return { escalated: false, noReferenceDetected: false };
+        return { escalated: false, noReferenceDetected: false, groupedConfirmationDetected: false };
       }
     });
   }
@@ -454,14 +545,18 @@ export class ConversationService {
     }
 
     const hasAssistantTurn = detail.turns.some((turn) => turn.who === 'assistant');
+    const triageState = await this.sessionsService.getTriageState(sessionId);
+    const triageAreas = (triageState.triageAreas as TriageAreas) ?? {};
 
     let summary: string | null = null;
+    let recommendations: string[] = [];
+    let alerts: string[] = [];
 
     if (hasAssistantTurn) {
-      summary = await this.metrics.runInScope(async () => {
+      const draft = await this.metrics.runInScope(async () => {
         const start = Date.now();
         const messages: LlmMessage[] = [
-          { role: 'system', content: SUMMARY_PROMPT },
+          { role: 'system', content: SUMMARY_DRAFT_PROMPT },
           ...detail.turns.map(turnToLlmMessage),
           // Cierre explícito en rol 'user': con la conversación terminando en un
           // turno 'assistant' (el caso normal), algunos modelos —confirmado con
@@ -472,7 +567,10 @@ export class ConversationService {
         ];
 
         try {
-          const completion = await this.llmPort.complete(messages);
+          const completion = await this.llmPort.structured(messages, {
+            schema: SummaryDraftSchema,
+            schemaName: 'session_summary_draft',
+          });
 
           this.metrics.recordCall({
             provider: this.llmPort.providerName,
@@ -484,10 +582,10 @@ export class ConversationService {
             ok: true,
           });
           this.logger.log(
-            `provider=${this.llmPort.providerName} model=${completion.model} method=complete(close) latencyMs=${completion.latencyMs}`,
+            `provider=${this.llmPort.providerName} model=${completion.model} method=structured(close) latencyMs=${completion.latencyMs}`,
           );
 
-          return completion.text;
+          return completion.data;
         } catch (error) {
           this.metrics.recordCall({
             provider: this.llmPort.providerName,
@@ -499,16 +597,55 @@ export class ConversationService {
             ok: false,
           });
           this.logger.error(
-            `provider=${this.llmPort.providerName} model=${this.llmPort.modelId} method=complete(close) falló: ${error instanceof Error ? error.message : String(error)}`,
+            `provider=${this.llmPort.providerName} model=${this.llmPort.modelId} method=structured(close) falló: ${error instanceof Error ? error.message : String(error)}`,
           );
           return null;
         }
       });
+
+      if (draft) {
+        summary = draft.summary;
+        recommendations = draft.recommendations;
+        alerts = draft.alerts;
+      }
     }
 
-    const closed = await this.sessionsService.update(sessionId, { status: 'ok', summary, closedAt: new Date() });
+    // RC.3 aplicado al cierre: `escalated` sale del triage determinístico —
+    // que la corrección de más arriba fuerza a rojo ante cualquier disparador
+    // de escalada, no del texto que el modelo generó para el resumen.
+    const escalated = triageState.triageLevel === 'red';
+    const durationSeconds = Math.max(0, Math.round((Date.now() - detail.createdAt.getTime()) / 1000));
+
+    const structuredSummary: SessionSummary = {
+      recommendations,
+      alerts,
+      escalated,
+      coverage: {
+        covered: ALL_AREAS.filter((area) => triageAreas[area] && triageAreas[area]?.covered !== 'no').map(
+          (area) => AREA_LABELS[area],
+        ),
+        pending: pendingAreas(triageAreas).map((area) => AREA_LABELS[area]),
+        grouped: Object.values(triageAreas).some((state) => state?.covered === 'grouped'),
+      },
+      metrics: {
+        turns: detail.turns.length,
+        durationSeconds,
+        ttftMs: null,
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: 0,
+      },
+    };
+
+    const closed = await this.sessionsService.update(sessionId, {
+      status: TRIAGE_TO_STATUS[triageState.triageLevel],
+      summary,
+      closedAt: new Date(),
+      structuredSummary,
+    });
     await this.escalationService.onSessionClosed(sessionId);
     this.pendingKnowledgeGapBySession.delete(sessionId);
+    this.pendingGroupedConfirmationBySession.delete(sessionId);
     return closed;
   }
 }

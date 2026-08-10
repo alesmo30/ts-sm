@@ -1,4 +1,4 @@
-import type { Citation } from '@ts-sm/shared';
+import type { Citation, Session } from '@ts-sm/shared';
 import { ArrowLeft } from 'lucide-react';
 
 import { useKbState } from '../../../shared/api/useKbState';
@@ -104,7 +104,64 @@ export function SessionDetail({ id, onBack }: SessionDetailProps) {
             </p>
           </div>
         )}
+
+        {session.structuredSummary && <StructuredSummaryCard summary={session.structuredSummary} />}
       </div>
+    </div>
+  );
+}
+
+function StructuredSummaryCard({ summary }: { summary: NonNullable<Session['structuredSummary']> }) {
+  const { alerts, recommendations, coverage } = summary;
+
+  if (alerts.length === 0 && recommendations.length === 0 && coverage.covered.length === 0 && coverage.pending.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="shrink-0 rounded-[10px] border border-border-mid bg-surface p-4">
+      <p className="text-[12.5px] font-medium text-muted">Triage clínico</p>
+
+      {alerts.length > 0 && (
+        <div className="mt-3">
+          <p className="text-[11.5px] font-medium uppercase tracking-[0.03em] text-danger">Alertas</p>
+          <ul className="mt-1.5 flex flex-col gap-1">
+            {alerts.map((alert) => (
+              <li
+                key={alert}
+                className="rounded-md border border-[rgba(255,122,102,.25)] bg-danger-soft px-2.5 py-1.5 text-[13px] text-fg"
+              >
+                {alert}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {recommendations.length > 0 && (
+        <div className="mt-3">
+          <p className="text-[11.5px] font-medium uppercase tracking-[0.03em] text-muted">Recomendaciones</p>
+          <ul className="mt-1.5 flex flex-col gap-1">
+            {recommendations.map((recommendation) => (
+              <li key={recommendation} className="text-[13px] leading-[18px] text-fg">
+                · {recommendation}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {(coverage.covered.length > 0 || coverage.pending.length > 0) && (
+        <div className="mt-3">
+          <p className="text-[11.5px] font-medium uppercase tracking-[0.03em] text-muted">
+            Cobertura del guion clínico{coverage.grouped ? ' · confirmación agrupada' : ''}
+          </p>
+          <p className="mt-1.5 text-[13px] leading-[18px] text-fg">
+            {coverage.covered.length > 0 && <span>Cubiertas: {coverage.covered.join(', ')}. </span>}
+            {coverage.pending.length > 0 && <span className="text-muted">Pendientes: {coverage.pending.join(', ')}.</span>}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
