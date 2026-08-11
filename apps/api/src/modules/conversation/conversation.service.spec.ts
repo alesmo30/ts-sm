@@ -8,6 +8,7 @@ import { RetrievalService } from '../knowledge/retrieval.service';
 import { LlmPort } from '../llm/llm.port';
 import type { LlmCompletion, LlmDelta, LlmMessage, LlmStructured } from '../llm/llm.types';
 import { LlmMetricsService } from '../llm/metrics';
+import { TurnMetricsService } from '../metrics/turn-metrics';
 import { SessionsService } from '../sessions/sessions.service';
 import { VoiceService } from '../voice/voice.service';
 
@@ -134,6 +135,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: port },
@@ -214,6 +216,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FakePort() },
@@ -260,6 +263,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FakePort() },
@@ -318,6 +322,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FakePort() },
@@ -399,6 +404,7 @@ describe('ConversationService', () => {
         providers: [
           ConversationService,
           LlmMetricsService,
+          TurnMetricsService,
           { provide: EscalationService, useValue: fakeEscalationService() },
           { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
           { provide: LlmPort, useValue: new VariationsPort() },
@@ -438,6 +444,7 @@ describe('ConversationService', () => {
         providers: [
           ConversationService,
           LlmMetricsService,
+          TurnMetricsService,
           { provide: EscalationService, useValue: fakeEscalationService() },
           { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
           { provide: LlmPort, useValue: port },
@@ -466,6 +473,7 @@ describe('ConversationService', () => {
         providers: [
           ConversationService,
           LlmMetricsService,
+          TurnMetricsService,
           { provide: EscalationService, useValue: fakeEscalationService() },
           { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
           { provide: LlmPort, useValue: port },
@@ -521,6 +529,7 @@ describe('ConversationService', () => {
         providers: [
           ConversationService,
           LlmMetricsService,
+          TurnMetricsService,
           { provide: EscalationService, useValue: escalationService },
           { provide: SessionsService, useValue: sessionsService },
           { provide: LlmPort, useValue: new FakePort() },
@@ -550,6 +559,7 @@ describe('ConversationService', () => {
         providers: [
           ConversationService,
           LlmMetricsService,
+          TurnMetricsService,
           { provide: EscalationService, useValue: escalationService },
           { provide: SessionsService, useValue: sessionsService },
           { provide: LlmPort, useValue: new FakePort() },
@@ -580,6 +590,7 @@ describe('ConversationService', () => {
         providers: [
           ConversationService,
           LlmMetricsService,
+          TurnMetricsService,
           { provide: EscalationService, useValue: escalationService },
           { provide: SessionsService, useValue: sessionsService },
           { provide: LlmPort, useValue: new FakePort() },
@@ -610,6 +621,7 @@ describe('ConversationService', () => {
         providers: [
           ConversationService,
           LlmMetricsService,
+          TurnMetricsService,
           { provide: EscalationService, useValue: escalationService },
           { provide: SessionsService, useValue: sessionsService },
           { provide: LlmPort, useValue: new FakePort() },
@@ -653,6 +665,7 @@ describe('ConversationService', () => {
         providers: [
           ConversationService,
           LlmMetricsService,
+          TurnMetricsService,
           { provide: EscalationService, useValue: escalationService },
           { provide: SessionsService, useValue: sessionsService },
           { provide: LlmPort, useValue: new EscalatingPort() },
@@ -702,6 +715,7 @@ describe('ConversationService', () => {
         providers: [
           ConversationService,
           LlmMetricsService,
+          TurnMetricsService,
           { provide: EscalationService, useValue: fakeEscalationService() },
           { provide: SessionsService, useValue: sessionsService },
           { provide: LlmPort, useValue: new GroupedConfirmationPort() },
@@ -758,6 +772,7 @@ describe('ConversationService', () => {
         providers: [
           ConversationService,
           LlmMetricsService,
+          TurnMetricsService,
           { provide: EscalationService, useValue: fakeEscalationService() },
           { provide: SessionsService, useValue: sessionsService },
           { provide: LlmPort, useValue: new FakePort() },
@@ -826,6 +841,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new NoReferencePort() },
@@ -891,6 +907,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new SentencePort() },
@@ -949,6 +966,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FakePort() },
@@ -1014,6 +1032,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: escalationService },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new EscalatingPort() },
@@ -1068,6 +1087,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: escalationService },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FakePort() },
@@ -1112,6 +1132,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: escalationService },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FakePort() },
@@ -1166,6 +1187,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: escalationService },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new NoReferencePort() },
@@ -1215,6 +1237,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: escalationService },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FakePort() },
@@ -1256,6 +1279,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FailingPort() },
@@ -1305,6 +1329,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new SummaryDraftPort() },
@@ -1381,6 +1406,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: sessionsService },
         { provide: LlmPort, useValue: new SummaryDraftPort() },
@@ -1429,6 +1455,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: new FailingStructuredPort() },
@@ -1467,6 +1494,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: port },
@@ -1502,6 +1530,7 @@ describe('ConversationService', () => {
       providers: [
         ConversationService,
         LlmMetricsService,
+        TurnMetricsService,
         { provide: EscalationService, useValue: fakeEscalationService() },
         { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
         { provide: LlmPort, useValue: port },
@@ -1519,5 +1548,144 @@ describe('ConversationService', () => {
     expect(sessionsService.remove).toHaveBeenCalledWith(SESSION_ID);
     expect(sessionsService.update).not.toHaveBeenCalled();
     expect(result).toBeNull();
+  });
+
+  describe('métricas de turno (SPEC 13)', () => {
+    function basicSessionsService() {
+      const savedTurns: TranscriptTurn[] = [];
+      let seq = 0;
+      return {
+        addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+          const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text, isVoice: input.isVoice });
+          savedTurns.push(turn);
+          return Promise.resolve(turn);
+        }),
+        getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns: savedTurns } as unknown as SessionDetail)),
+      };
+    }
+
+    it('un turno con TTS deja un TurnMetric con spoke:true y responseLatencyMs > 0', async () => {
+      const speakingVoiceService = {
+        isAvailable: true,
+        speak: jest.fn((text: string) => Promise.resolve(Buffer.from(text))),
+      } as unknown as VoiceService;
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          ConversationService,
+          LlmMetricsService,
+          TurnMetricsService,
+          { provide: EscalationService, useValue: fakeEscalationService() },
+          { provide: SessionsService, useValue: withTriageDefaults(basicSessionsService()) },
+          { provide: LlmPort, useValue: new FakePort() },
+          { provide: VoiceService, useValue: speakingVoiceService },
+          { provide: RetrievalService, useValue: fakeRetrievalService() },
+          { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+          { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+        ],
+      }).compile();
+
+      const service = moduleRef.get(ConversationService);
+      const turnMetrics = moduleRef.get(TurnMetricsService);
+
+      await service.handleUserMessage(SESSION_ID, 'hola', true, () => undefined, (chunk) => void chunk);
+
+      const snapshot = turnMetrics.getSnapshot();
+      expect(snapshot.recentTurns).toHaveLength(1);
+      expect(snapshot.recentTurns[0].spoke).toBe(true);
+      expect(snapshot.recentTurns[0].responseLatencyMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('un turno sin voz deja spoke:false y no aporta a los percentiles', async () => {
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          ConversationService,
+          LlmMetricsService,
+          TurnMetricsService,
+          { provide: EscalationService, useValue: fakeEscalationService() },
+          { provide: SessionsService, useValue: withTriageDefaults(basicSessionsService()) },
+          { provide: LlmPort, useValue: new FakePort() },
+          { provide: VoiceService, useValue: fakeVoiceService },
+          { provide: RetrievalService, useValue: fakeRetrievalService() },
+          { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+          { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+        ],
+      }).compile();
+
+      const service = moduleRef.get(ConversationService);
+      const turnMetrics = moduleRef.get(TurnMetricsService);
+
+      await service.handleUserMessage(SESSION_ID, 'hola', false, () => undefined);
+
+      const snapshot = turnMetrics.getSnapshot();
+      expect(snapshot.recentTurns[0].spoke).toBe(false);
+      expect(snapshot.overall.responseLatency.count).toBe(0);
+    });
+
+    it('un TurnMetricsService que lanza en todos sus métodos no tumba el turno del paciente', async () => {
+      const throwingTurnMetrics = {
+        runInTurn: (_sessionId: string, fn: () => Promise<unknown>) => fn(),
+        markAudioEnd: () => {
+          throw new Error('boom');
+        },
+        markFirstAudio: () => {
+          throw new Error('boom');
+        },
+        addLlmCall: () => {
+          throw new Error('boom');
+        },
+        addEmbeddingCall: () => {
+          throw new Error('boom');
+        },
+        addRagQuery: () => {
+          throw new Error('boom');
+        },
+        addSttCall: () => {
+          throw new Error('boom');
+        },
+        addTtsCall: () => {
+          throw new Error('boom');
+        },
+        getSnapshot: () => {
+          throw new Error('boom');
+        },
+      } as unknown as TurnMetricsService;
+
+      const sessionsService = basicSessionsService();
+      const speakingVoiceService = {
+        isAvailable: true,
+        speak: jest.fn((text: string) => Promise.resolve(Buffer.from(text))),
+      } as unknown as VoiceService;
+
+      const moduleRef = await Test.createTestingModule({
+        providers: [
+          ConversationService,
+          LlmMetricsService,
+          { provide: TurnMetricsService, useValue: throwingTurnMetrics },
+          { provide: EscalationService, useValue: fakeEscalationService() },
+          { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
+          { provide: LlmPort, useValue: new FakePort() },
+          { provide: VoiceService, useValue: speakingVoiceService },
+          { provide: RetrievalService, useValue: fakeRetrievalService() },
+          { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+          { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+        ],
+      }).compile();
+
+      const service = moduleRef.get(ConversationService);
+      const events: unknown[] = [];
+
+      // Ninguno de los add*/mark* de TurnMetricsService puede tumbar el turno
+      // real: los sitios de llamada los envuelven en try/catch silencioso
+      // (ver spec 13, riesgo "instrumentación en el camino crítico"). Con este
+      // doble que lanza en todo, el turno debe seguir respondiendo y
+      // guardando su transcript sin propagar el error de la métrica.
+      await service.handleUserMessage(SESSION_ID, 'hola', true, (event) => events.push(event), (chunk) => void chunk);
+
+      expect(sessionsService.addTurn).toHaveBeenCalledTimes(2);
+      const types = events.map((event) => (event as { type: string }).type);
+      expect(types[0]).toBe('turn_saved');
+      expect(types[types.length - 1]).toBe('done');
+    });
   });
 });

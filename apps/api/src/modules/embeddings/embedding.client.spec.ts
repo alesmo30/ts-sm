@@ -1,3 +1,5 @@
+import { TurnMetricsService } from '../metrics/turn-metrics';
+
 import { EmbeddingClient } from './embedding.client';
 import type { EmbeddingConfig } from './embedding.config';
 
@@ -44,5 +46,27 @@ describe('EmbeddingClient', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(requestBody(fetchMock)).toMatchObject({ outputDimensionality: 768 });
+  });
+
+  it('SPEC 13 — embedOne cuenta embeddingCalls del turno activo, aparte de llmCalls', async () => {
+    mockFetchOnce([0.1, 0.2]);
+    const turnMetrics = new TurnMetricsService();
+    const client = new EmbeddingClient(config, turnMetrics);
+
+    await turnMetrics.runInTurn('session-1', async () => {
+      await client.embedOne('texto 1');
+      await client.embedOne('texto 2');
+    });
+
+    const metric = turnMetrics.getSnapshot().recentTurns[0];
+    expect(metric.embeddingCalls).toBe(2);
+    expect(metric.llmCalls.stream + metric.llmCalls.structured + metric.llmCalls.complete).toBe(0);
+  });
+
+  it('SPEC 13 — sin TurnMetricsService inyectado, embedOne sigue funcionando (es opcional)', async () => {
+    mockFetchOnce([0.1, 0.2]);
+    const client = new EmbeddingClient(config);
+
+    await expect(client.embedOne('texto')).resolves.toEqual([0.1, 0.2]);
   });
 });

@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import type { Citation } from '@ts-sm/shared';
 import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
 
@@ -6,6 +6,7 @@ import { DRIZZLE_CLIENT } from '../../database/database.module';
 import type { DrizzleClient } from '../../database/drizzle.client';
 import { referenceChunks, references } from '../../database/schema';
 import { EmbeddingClient } from '../embeddings/embedding.client';
+import { TurnMetricsService } from '../metrics/turn-metrics';
 
 const DEFAULT_TOP_K = 4; // léxico, sin cambios
 const SEMANTIC_TOP_K = 6; // candidatos de la rama semántica antes de fusionar
@@ -55,9 +56,21 @@ export class RetrievalService {
   constructor(
     @Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient,
     private readonly embeddingClient: EmbeddingClient,
+    @Optional() private readonly turnMetrics?: TurnMetricsService,
   ) {}
 
   async search(query: string, k: number = DEFAULT_TOP_K): Promise<Citation[]> {
+    // SPEC 13 — cuenta la consulta al RAG apenas se invoca, sin condicionar al
+    // resultado: un turno con multi-query (SPEC 09) llama search() 4 veces, y
+    // las cuatro deben contar. Una falla acá nunca puede tumbar el retrieval real.
+    try {
+      this.turnMetrics?.addRagQuery();
+    } catch (error) {
+      this.logger.debug(
+        `No fue posible registrar la métrica de turno para esta consulta al RAG: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
     // plainto_tsquery une los términos con AND: con la consulta enriquecida
     // (turno del asistente + texto del paciente, ver conversation.service.ts)
     // eso exige que TODOS los términos aparezcan en un mismo chunk, lo que en

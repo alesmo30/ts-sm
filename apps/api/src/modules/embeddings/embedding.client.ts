@@ -1,4 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+
+import { TurnMetricsService } from '../metrics/turn-metrics';
 
 import type { EmbeddingConfig } from './embedding.config';
 import { EMBEDDING_CONFIG } from './embedding.tokens';
@@ -34,7 +36,12 @@ export interface EmbedOptions {
 
 @Injectable()
 export class EmbeddingClient {
-  constructor(@Inject(EMBEDDING_CONFIG) private readonly config: EmbeddingConfig) {}
+  private readonly logger = new Logger(EmbeddingClient.name);
+
+  constructor(
+    @Inject(EMBEDDING_CONFIG) private readonly config: EmbeddingConfig,
+    @Optional() private readonly turnMetrics?: TurnMetricsService,
+  ) {}
 
   get isAvailable(): boolean {
     return !!this.config.apiKey;
@@ -45,6 +52,16 @@ export class EmbeddingClient {
   }
 
   async embedOne(text: string, options?: EmbedOptions): Promise<number[]> {
+    // SPEC 13 — cuenta aparte de llmCalls (Gemini es encoder, no el LLM
+    // generativo). Una falla acá nunca puede tumbar la llamada real.
+    try {
+      this.turnMetrics?.addEmbeddingCall();
+    } catch (error) {
+      this.logger.debug(
+        `No fue posible registrar la métrica de turno para este embedding: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
     const url = `${GEMINI_API_BASE}/models/${this.config.model}:embedContent?key=${this.config.apiKey}`;
     const body = {
       model: `models/${this.config.model}`,

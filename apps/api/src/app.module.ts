@@ -8,6 +8,7 @@ import { ConversationModule } from './modules/conversation/conversation.module';
 import { HealthModule } from './modules/health/health.module';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { LlmModule } from './modules/llm/llm.module';
+import { MetricsModule } from './modules/metrics/metrics.module';
 import { PatientsModule } from './modules/patients/patients.module';
 import { SessionsModule } from './modules/sessions/sessions.module';
 import { StatsModule } from './modules/stats/stats.module';
@@ -21,6 +22,7 @@ import { VoiceModule } from './modules/voice/voice.module';
     DatabaseModule,
     HealthModule,
     LlmModule,
+    MetricsModule,
     VoiceModule,
     SessionsModule,
     PatientsModule,

@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+
+import { TurnMetricsService, type LlmCallMethod } from '../metrics/turn-metrics';
 
 import { priceFor } from './pricing';
 
@@ -44,6 +46,7 @@ export interface RecordCallInput {
 
 @Injectable()
 export class LlmMetricsService {
+  private readonly logger = new Logger(LlmMetricsService.name);
   private readonly als = new AsyncLocalStorage<LlmCallContext>();
 
   private totalCalls = 0;
@@ -51,6 +54,8 @@ export class LlmMetricsService {
   private totalOutputTokens = 0;
   private totalCostUsd = 0;
   private readonly recent: LlmCallMetric[] = [];
+
+  constructor(@Optional() private readonly turnMetrics?: TurnMetricsService) {}
 
   runInScope<T>(fn: () => T): T {
     return this.als.run({ startedAt: Date.now(), ttftMs: null }, fn);
@@ -91,6 +96,15 @@ export class LlmMetricsService {
     this.recent.push(metric);
     if (this.recent.length > RECENT_BUFFER_SIZE) {
       this.recent.shift();
+    }
+
+    // SPEC 13 — una falla acá nunca puede tumbar la llamada real al LLM.
+    try {
+      this.turnMetrics?.addLlmCall(input.method as LlmCallMethod, input.inputTokens, input.outputTokens, costUsd);
+    } catch (error) {
+      this.logger.debug(
+        `No fue posible registrar la métrica de turno para esta llamada: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
 
     return metric;
