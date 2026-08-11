@@ -59,4 +59,44 @@ describe('colloquial-glossary', () => {
     const normalized = normalizeColloquialSpeech('pero eso será por la edad, uno ya no duerme como antes');
     expect(evaluate(normalized)).toEqual([]);
   });
+
+  it('normaliza "punzada" y "ardor" para que disparen dolor con número', () => {
+    expect(evaluate(normalizeColloquialSpeech('siento una punzada de 6'))[0]).toMatchObject({ area: 'pain', level: 'yellow' });
+    expect(evaluate(normalizeColloquialSpeech('un ardor como de 7'))[0]).toMatchObject({ area: 'pain', level: 'yellow' });
+  });
+
+  it('normaliza "hirviendo", "afiebrado" y "escalofríos" para que disparen fiebre con número', () => {
+    expect(evaluate(normalizeColloquialSpeech('estoy hirviendo, como 38.6'))[0]).toMatchObject({ area: 'fever', level: 'red' });
+    expect(evaluate(normalizeColloquialSpeech('me siento afiebrada, 37.8'))[0]).toMatchObject({ area: 'fever', level: 'yellow' });
+    expect(evaluate(normalizeColloquialSpeech('tengo escalofríos, 38.7'))[0]).toMatchObject({ area: 'fever', level: 'red' });
+  });
+
+  it('no dispara falso positivo de fiebre/dolor sin un número al lado (mismo gate que triage.rules)', () => {
+    expect(evaluate(normalizeColloquialSpeech('siento una punzada pero nada grave'))).toEqual([]);
+    expect(evaluate(normalizeColloquialSpeech('un poco de ardor, nada serio'))).toEqual([]);
+    expect(evaluate(normalizeColloquialSpeech('estoy como hirviendo pero se me pasa'))).toEqual([]);
+  });
+
+  it('normaliza "no puedo ni pararme" (con "ni") al mismo nivel rojo que "no puedo pararme"', () => {
+    const withNi = evaluate(normalizeColloquialSpeech('no puedo ni pararme de la cama'));
+    const without = evaluate('no puedo pararme de la cama');
+    expect(withNi).toEqual(without);
+    expect(withNi[0]).toMatchObject({ area: 'mobility', level: 'red' });
+  });
+
+  it('normaliza "caliente la herida" para que dispare wound sin necesitar el descriptor original', () => {
+    const [signal] = evaluate(normalizeColloquialSpeech('la herida está caliente al tacto'));
+    expect(signal).toMatchObject({ area: 'wound', level: 'yellow' });
+  });
+
+  it('normaliza los modismos fuertes de apetito a pérdida total', () => {
+    expect(evaluate(normalizeColloquialSpeech('se me cerró el estómago'))[0]).toMatchObject({ area: 'appetite', level: 'yellow' });
+    expect(evaluate(normalizeColloquialSpeech('no me pasa la comida'))[0]).toMatchObject({ area: 'appetite', level: 'yellow' });
+    expect(evaluate(normalizeColloquialSpeech('me da asco la comida'))[0]).toMatchObject({ area: 'appetite', level: 'yellow' });
+  });
+
+  it('normaliza "no logro/puedo pegar el ojo" igual que las variantes ya cubiertas', () => {
+    expect(evaluate(normalizeColloquialSpeech('no logro pegar el ojo'))[0]).toMatchObject({ area: 'sleep', level: 'yellow' });
+    expect(evaluate(normalizeColloquialSpeech('no puedo pegar el ojo'))[0]).toMatchObject({ area: 'sleep', level: 'yellow' });
+  });
 });

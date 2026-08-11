@@ -46,6 +46,12 @@ export const COLLOQUIAL_GLOSSARY: ColloquialEntry[] = [
     area: 'sleep',
   },
   {
+    pattern: /no (logro|puedo) pegar el ojo/gi,
+    replacement: 'duermo mal',
+    origin: 'modismo_general',
+    area: 'sleep',
+  },
+  {
     // corre después de la conjugación de arriba: "duermo casi nada" ya llegó
     // como "dormir casi nada" a esta altura del reduce.
     pattern: /dormir casi nada/gi,
@@ -54,7 +60,8 @@ export const COLLOQUIAL_GLOSSARY: ColloquialEntry[] = [
     area: 'sleep',
   },
 
-  // fiebre
+  // fiebre — igual de seguro que dolor: evaluateFever() también exige un
+  // número cerca del keyword, ampliar vocabulario no dispara nada por sí solo.
   {
     pattern: /calentura/gi,
     replacement: 'temperatura',
@@ -79,9 +86,29 @@ export const COLLOQUIAL_GLOSSARY: ColloquialEntry[] = [
     origin: 'modismo_general',
     area: 'fever',
   },
+  {
+    pattern: /hirviendo/gi,
+    replacement: 'temperatura',
+    origin: 'modismo_general',
+    area: 'fever',
+  },
+  {
+    pattern: /afiebrad[oa]/gi,
+    replacement: 'temperatura',
+    origin: 'modismo_general',
+    area: 'fever',
+  },
+  {
+    pattern: /escalofrí?os?/gi,
+    replacement: 'fiebre',
+    origin: 'modismo_general',
+    area: 'fever',
+  },
 
   // dolor — PAIN keyword es literal "dolor"; "me duele" sin esa palabra no
-  // se detecta aunque traiga el número al lado.
+  // se detecta aunque traiga el número al lado. Todas las entradas de esta
+  // área son seguras de ampliar: evaluatePain() exige un número cerca del
+  // keyword, así que una palabra nueva sin número al lado nunca dispara nada.
   {
     pattern: /duele/gi,
     replacement: 'dolor',
@@ -94,8 +121,36 @@ export const COLLOQUIAL_GLOSSARY: ColloquialEntry[] = [
     origin: 'caso_fallado',
     area: 'pain',
   },
+  {
+    pattern: /punzada/gi,
+    replacement: 'dolor',
+    origin: 'modismo_general',
+    area: 'pain',
+  },
+  {
+    pattern: /ardor/gi,
+    replacement: 'dolor',
+    origin: 'modismo_general',
+    area: 'pain',
+  },
 
-  // movilidad
+  // movilidad — MOBILITY_RED exige adyacencia exacta ("no puedo pararme");
+  // "no puedo ni pararme" con el "ni" de énfasis no matchea el patrón
+  // original. Mismo nivel de severidad que ya reconocía la regla — solo se
+  // le quita la partícula que rompía la adyacencia, no se inventa un nivel
+  // nuevo de gravedad.
+  {
+    pattern: /no puedo ni (moverme|caminar|levantarme|pararme)/gi,
+    replacement: 'no puedo $1',
+    origin: 'modismo_general',
+    area: 'mobility',
+  },
+  {
+    pattern: /no me puedo ni (mover|levantar|parar)/gi,
+    replacement: 'no me puedo $1',
+    origin: 'modismo_general',
+    area: 'mobility',
+  },
   {
     pattern: /me cuesta (un poquito )?enderezarme/gi,
     replacement: 'dificultad leve para moverme',
@@ -128,13 +183,35 @@ export const COLLOQUIAL_GLOSSARY: ColloquialEntry[] = [
     origin: 'modismo_general',
     area: 'wound',
   },
+  {
+    // calor localizado en la herida es señal de infección reconocida —
+    // distinto del descriptor "rojita" que el arquetipo ansioso del dataset
+    // usa para una herida sana (ver comentario arriba). Validado con el
+    // evaluador antes de commitear, igual que el resto de esta área.
+    pattern: /(la )?(herida|cicatriz)[^.]{0,20}(está |esta )?caliente/gi,
+    replacement: 'la herida está algo hinchada',
+    origin: 'modismo_general',
+    area: 'wound',
+  },
 
   // apetito — mismo hallazgo que herida: "como poquito"/"con desgano" son
   // reducciones leves que el ground truth sigue tratando como verde. Se
-  // sacaron esas cuatro entradas por la misma razón; queda un modismo que sí
-  // describe pérdida total, no parcial.
+  // sacaron esas cuatro entradas por la misma razón; solo quedan modismos
+  // que describen pérdida total, no parcial.
   {
     pattern: /se me cerr[oó] el estómago/gi,
+    replacement: 'no tengo apetito',
+    origin: 'modismo_general',
+    area: 'appetite',
+  },
+  {
+    pattern: /no me pasa la comida/gi,
+    replacement: 'no tengo apetito',
+    origin: 'modismo_general',
+    area: 'appetite',
+  },
+  {
+    pattern: /me da asco (la comida|comer)/gi,
     replacement: 'no tengo apetito',
     origin: 'modismo_general',
     area: 'appetite',

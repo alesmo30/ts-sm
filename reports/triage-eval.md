@@ -1,6 +1,6 @@
 # Evaluación de triage — SPEC 11 + SPEC 12 (normalización de modismos colombianos)
 
-**Fecha:** 2026-08-10
+**Fecha:** 2026-08-11
 **Commit evaluado de `triage.rules.ts`:** 968a64d
 
 > Esta matriz mide **solo la rama determinística** del triage (`triage.rules.ts` + la capa de normalización de `colloquial-glossary.ts`). `RedFlagDetectorService` (similitud semántica, requiere `GEMINI_API_KEY`) y la marca `[[ESCALAR]]` del modelo no están incluidas — no son reproducibles offline sin costo. En producción esas dos señales solo pueden subir la severidad, nunca bajarla: esta matriz es un **piso**, no el rendimiento del sistema completo. La pasada "sin normalizar" reproduce exactamente la línea base commiteada en SPEC 11.
