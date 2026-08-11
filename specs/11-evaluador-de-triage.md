@@ -1,6 +1,6 @@
 # SPEC 11 — Evaluador de triage contra el dataset etiquetado
 
-> **Estado:** Borrador
+> **Estado:** Implementado
 > **Depende de:** SPEC 10
 > **Fecha:** 2026-08-10
 > **Objetivo:** Correr las reglas determinísticas de triage contra los 160 casos etiquetados de `dataset_final.xlsx` y emitir una matriz de confusión reproducible, con cada falso negativo listado por `caso_id`.
@@ -125,10 +125,15 @@ El mapeo entre el vocabulario del dataset y el de SPEC 10 es el mismo de la tabl
    **Verificación:** el script reporta 160 casos por capa y ninguna inconsistencia de
    etiqueta.
 
-3. **Predicción.** Por cada caso, correr `evaluate()` de SPEC 10 turno a turno acumulando
-   igual que `ConversationService`: máximo con el nivel previo, más la regla de dos amarillos
-   hacen un rojo. El nivel final se traduce al vocabulario del dataset.
-   **Verificación:** un caso rojo conocido del dataset predice `rojo`.
+3. **Predicción.** Por cada caso, correr `evaluate()` de SPEC 10 turno a turno y acumular con
+   la misma cadena que `ConversationService`: `mergeTriageAreas(areasPrevias, signals, [], false)`
+   seguido de `maxLevel([nivelPrevio, ...signals.map((s) => s.level), accumulatedLevel(areasSiguientes)])`.
+   `askedAreas` va vacío y `grouped` en `false` porque el evaluador no consume turnos del
+   agente — y no altera el resultado: ambas entradas solo escriben `covered`, con
+   `level: 'green'`, y `accumulatedLevel` solo cuenta áreas en `yellow`. El nivel final se
+   traduce al vocabulario del dataset.
+   **Verificación:** un caso rojo conocido del dataset predice `rojo`, y un caso con dos áreas
+   amarillas distintas predice `rojo` por `accumulatedLevel`.
 
 4. **Matriz y reporte.** Matriz 3×3 por capa, recall de rojos, falsos negativos separados en
    `rojo→verde` y `rojo→amarillo`, y la tabla de casos fallados con `caso_id`, esperado,
@@ -158,6 +163,8 @@ El mapeo entre el vocabulario del dataset y el de SPEC 10 es el mismo de la tabl
 - [ ] El reporte lista **cada** caso fallado con su `caso_id`, la etiqueta esperada, la
       predicha y las señales que las reglas detectaron.
 - [ ] Los falsos negativos aparecen separados en `rojo→verde` y `rojo→amarillo`.
+- [ ] La acumulación usa `mergeTriageAreas` + `accumulatedLevel`, no solo `maxLevel` sobre las
+      señales: un caso con dos áreas amarillas distintas sale `rojo`.
 - [ ] `reports/triage-eval.md` queda commiteado, con fecha, commit evaluado y la advertencia
       de que mide solo la rama determinística.
 - [ ] Dos corridas seguidas sobre el mismo dataset producen resultados idénticos.

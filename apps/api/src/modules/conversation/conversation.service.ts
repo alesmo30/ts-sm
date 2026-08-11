@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Citation, ServerEvent, Session, SessionSummary, TranscriptTurn } from '@ts-sm/shared';
 
+import { normalizeColloquialSpeech } from '../escalation/colloquial-glossary';
 import { detectEscalationReason, EscalationService } from '../escalation/escalation.service';
 import { RedFlagDetectorService } from '../escalation/red-flag-detector.service';
 import {
@@ -215,7 +216,11 @@ export class ConversationService {
     // SPEC 10 — triage determinístico: se corre sobre el texto del paciente en
     // cada turno, independiente de la respuesta del LLM. `covered`/`triage_level`
     // solo pueden subir de severidad (RC.3) — nunca se leen para bajarlos.
-    const triageSignals = evaluateTriage(text);
+    // SPEC 12 — solo esta copia se normaliza (modismos/diminutivos coloquiales
+    // colombianos y conjugaciones de "dormir" que triage.rules no reconoce
+    // literalmente). El `text` original sigue intacto para el transcript
+    // guardado y para `retrievalQuery` más abajo.
+    const triageSignals = evaluateTriage(normalizeColloquialSpeech(text));
     const groupedConfirmationWasPending = this.pendingGroupedConfirmationBySession.get(sessionId) ?? false;
     this.pendingGroupedConfirmationBySession.delete(sessionId);
     // La pregunta de confirmación agrupada nombra las áreas pendientes por su
