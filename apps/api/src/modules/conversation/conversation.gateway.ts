@@ -24,6 +24,11 @@ export class ConversationGateway implements OnGatewayConnection, OnGatewayDiscon
   // pestañas abiertas (caso de la demo).
   private readonly socketsBySession = new Map<string, Set<WebSocket>>();
   private readonly sessionByClient = new Map<WebSocket, string>();
+  // SPEC 13 — marca de Date.now() tomada al terminar de transcribir el
+  // audio_end de este socket; el siguiente user_message del mismo cliente la
+  // consume para medir endOfSpeechLatencyMs y la borra al leerla, así un
+  // audio_end no puede alimentar dos turnos.
+  private readonly audioEndByClient = new Map<WebSocket, number>();
 
   constructor(private readonly conversationService: ConversationService) {}
 
@@ -56,6 +61,7 @@ export class ConversationGateway implements OnGatewayConnection, OnGatewayDiscon
 
   handleDisconnect(client: WebSocket): void {
     this.sttSessions.delete(client);
+    this.audioEndByClient.delete(client);
     const sessionId = this.sessionByClient.get(client);
     if (sessionId) {
       this.socketsBySession.get(sessionId)?.delete(client);
@@ -92,6 +98,11 @@ export class ConversationGateway implements OnGatewayConnection, OnGatewayDiscon
     if (event.type !== 'user_message') return;
     this.registerSocket(client, event.sessionId);
 
+    // SPEC 13 — se consume y se borra en el mismo paso: un audio_end solo
+    // puede alimentar el próximo user_message de este socket, nunca dos.
+    const audioEndAt = this.audioEndByClient.get(client) ?? null;
+    this.audioEndByClient.delete(client);
+
     try {
       // El agente responde en voz aunque el paciente haya escrito: emitAudio se
       // pasa siempre, no solo desde el flujo de audio_end. isVoice viaja en el
@@ -104,6 +115,7 @@ export class ConversationGateway implements OnGatewayConnection, OnGatewayDiscon
         event.isVoice,
         (serverEvent) => this.emit(client, serverEvent),
         (chunk) => client.send(chunk),
+        audioEndAt,
       );
     } catch (error) {
       this.logger.error(`Fallo no controlado procesando user_message: ${error instanceof Error ? error.message : String(error)}`);
@@ -188,6 +200,11 @@ export class ConversationGateway implements OnGatewayConnection, OnGatewayDiscon
       this.emit(client, { type: 'stt_status', state: 'failed', message: 'No se entendió nada. Intenta de nuevo.' });
       return;
     }
+
+    // SPEC 13 — la marca se toma acá, después de transcribir, no al llegar el
+    // frame de audio_end: es el instante desde el que el paciente queda
+    // esperando respuesta, con el tramo de STT ya incluido.
+    this.audioEndByClient.set(client, Date.now());
 
     // No se envía solo: el texto transcrito vuelve al cliente para que se
     // acumule en el composer (editable, combinable con más dictado o texto

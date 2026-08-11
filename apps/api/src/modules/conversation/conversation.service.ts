@@ -21,6 +21,7 @@ import { RetrievalService } from '../knowledge/retrieval.service';
 import { LlmPort } from '../llm/llm.port';
 import type { LlmMessage } from '../llm/llm.types';
 import { LlmMetricsService } from '../llm/metrics';
+import { TurnMetricsService } from '../metrics/turn-metrics';
 import { SessionsService } from '../sessions/sessions.service';
 import { PhraseSegmenter, VoiceService, type SttSession } from '../voice/voice.service';
 
@@ -130,6 +131,7 @@ export class ConversationService {
     private readonly citationRelevance: CitationRelevanceService,
     private readonly escalationService: EscalationService,
     private readonly redFlagDetector: RedFlagDetectorService,
+    private readonly turnMetrics: TurnMetricsService,
   ) {}
 
   /** Abre el socket de STT para un turno hablado. Lanza si la voz no está configurada. */
@@ -168,14 +170,38 @@ export class ConversationService {
     return turns;
   }
 
-  /** Devuelve true si el agente emitió la marca de escalada en esta respuesta. */
-  async handleUserMessage(
+  /**
+   * Devuelve true si el agente emitió la marca de escalada en esta respuesta.
+   *
+   * `audioEndAt` es la marca de `Date.now()` que el gateway tomó al terminar
+   * de transcribir el `audio_end` de este mismo socket (SPEC 13) — `null`/`undefined`
+   * en turnos escritos, o si el turno hablado no tuvo un `audio_end` propio.
+   */
+  handleUserMessage(
     sessionId: string,
     text: string,
     isVoice: boolean,
     emit: (event: ServerEvent) => void,
     emitAudio?: (chunk: Buffer) => void,
+    audioEndAt?: number | null,
   ): Promise<boolean> {
+    return this.turnMetrics.runInTurn(sessionId, () =>
+      this.handleUserMessageInner(sessionId, text, isVoice, emit, emitAudio, audioEndAt),
+    );
+  }
+
+  private async handleUserMessageInner(
+    sessionId: string,
+    text: string,
+    isVoice: boolean,
+    emit: (event: ServerEvent) => void,
+    emitAudio?: (chunk: Buffer) => void,
+    audioEndAt?: number | null,
+  ): Promise<boolean> {
+    if (audioEndAt !== null && audioEndAt !== undefined) {
+      this.turnMetrics.markAudioEnd(audioEndAt);
+    }
+
     const existingSession = await this.sessionsService.getDetail(sessionId);
     if (existingSession.closedAt) {
       emit({ type: 'error', message: 'Esta sesión ya está cerrada.' });
@@ -421,6 +447,7 @@ export class ConversationService {
         try {
           const audio = await this.voiceService.speak(phrase);
           emit({ type: 'tts_start' });
+          this.turnMetrics.markFirstAudio();
           emitAudio(audio);
           emit({ type: 'tts_end' });
           spoke = true;

@@ -1,4 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+
+import { TurnMetricsService } from '../metrics/turn-metrics';
 
 export interface VoiceCallMetric {
   at: string; // ISO 8601
@@ -35,10 +37,13 @@ export interface RecordTtsInput {
 
 @Injectable()
 export class VoiceMetricsService {
+  private readonly logger = new Logger(VoiceMetricsService.name);
   private totalCalls = 0;
   private totalSttCalls = 0;
   private totalTtsCalls = 0;
   private readonly recent: VoiceCallMetric[] = [];
+
+  constructor(@Optional() private readonly turnMetrics?: TurnMetricsService) {}
 
   recordStt(input: RecordSttInput): VoiceCallMetric {
     const metric: VoiceCallMetric = {
@@ -52,6 +57,7 @@ export class VoiceMetricsService {
     };
     this.totalSttCalls += 1;
     this.push(metric);
+    this.recordTurnCall(() => this.turnMetrics?.addSttCall());
     return metric;
   }
 
@@ -67,7 +73,19 @@ export class VoiceMetricsService {
     };
     this.totalTtsCalls += 1;
     this.push(metric);
+    this.recordTurnCall(() => this.turnMetrics?.addTtsCall());
     return metric;
+  }
+
+  // SPEC 13 — una falla acá nunca puede tumbar la llamada real de voz.
+  private recordTurnCall(fn: () => void): void {
+    try {
+      fn();
+    } catch (error) {
+      this.logger.debug(
+        `No fue posible registrar la métrica de turno para esta llamada de voz: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   getSnapshot(): VoiceMetricsSnapshot {

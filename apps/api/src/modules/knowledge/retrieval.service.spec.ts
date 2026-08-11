@@ -1,5 +1,6 @@
 import type { DrizzleClient } from '../../database/drizzle.client';
 import type { EmbeddingClient } from '../embeddings/embedding.client';
+import { TurnMetricsService } from '../metrics/turn-metrics';
 
 import { RetrievalService } from './retrieval.service';
 
@@ -194,5 +195,28 @@ describe('RetrievalService', () => {
 
     expect(citations).toHaveLength(1);
     expect(citations[0].chunkId).toBe(makeRow().chunkId);
+  });
+
+  it('SPEC 13 — cada llamada a search() cuenta como una consulta al RAG del turno activo (multi-query cuenta 4)', async () => {
+    const db = makeLexicalOnlyDbMock([]);
+    const turnMetrics = new TurnMetricsService();
+    const service = new RetrievalService(db as unknown as DrizzleClient, fakeEmbeddingClient(), turnMetrics);
+
+    await turnMetrics.runInTurn('session-1', async () => {
+      // 1 intento original + 3 variaciones del respaldo de multi-query (SPEC 09).
+      await service.search('consulta original');
+      await service.search('variación 1');
+      await service.search('variación 2');
+      await service.search('variación 3');
+    });
+
+    expect(turnMetrics.getSnapshot().recentTurns[0].ragQueries).toBe(4);
+  });
+
+  it('SPEC 13 — sin TurnMetricsService inyectado, search() sigue funcionando (es opcional)', async () => {
+    const db = makeLexicalOnlyDbMock([makeRow()]);
+    const service = new RetrievalService(db as unknown as DrizzleClient, fakeEmbeddingClient());
+
+    await expect(service.search('consulta')).resolves.toHaveLength(1);
   });
 });

@@ -46,6 +46,7 @@ curl localhost:3000/health
 | `POST` | `/llm/complete` | llamada de verificación al proveedor de LLM activo |
 | `GET` | `/llm/health` | proveedor y modelo activos (`provider`, `model`, `ready`) |
 | `GET` | `/llm/metrics` | acumulado en memoria de tokens/costo/latencia por llamada |
+| `GET` | `/metrics` | métricas de rúbrica por turno y por sesión — ver [Métricas](#métricas) |
 
 Para bajar todo (incluyendo volúmenes de datos):
 
@@ -101,6 +102,127 @@ OPENAI_BASE_URL=https://api.groq.com/openai/v1
 El driver `openai` no sabe que está hablando con Groq; solo usa el `baseURL` configurado. El mismo mecanismo sirve para cualquier gateway compatible con la API de `chat.completions`.
 
 **Advertencia (R0.1 de `REGLAS.md`):** el `.env` que se entrega, el README y el video de demo deben apuntar al modelo obligatorio anunciado el 7 de agosto de 2026 — nunca a otro proveedor como fallback ni "solo para probar". Verificar con `GET /llm/health` antes de grabar cualquier entregable.
+
+## Métricas
+
+Ver `specs/13-metricas-de-rubrica.md`. `GET /metrics` acumula en memoria (sin persistencia — muere con el proceso, igual que `/llm/metrics`) latencia, tokens, invocaciones al modelo, consultas al RAG y costo, por turno y agregado por sesión.
+
+**Modelo declarado:** `llama-3.3-70b-versatile`, familia Meta Llama, servido vía Groq (gateway compatible con la API de OpenAI — ver [Capa de LLM](#capa-de-llm-cambiar-de-proveedor)). Elegido por estar dentro de las familias permitidas por el kit del reto (G3) y por su latencia de inferencia, el factor más ajustado del presupuesto de una conversación de voz con un turno completo (STT → LLM → TTS) por debajo de los pocos segundos que tolera una llamada en vivo.
+
+### Los dos tramos de latencia
+
+| Tramo | Qué mide | Qué incluye |
+|---|---|---|
+| `responseLatencyMs` | Entrada a `handleUserMessage` → primer chunk de audio emitido | Solo el sistema: retrieval, LLM, primera frase sintetizada. No incluye STT ni red hacia el navegador. |
+| `endOfSpeechLatencyMs` | `audio_end` del socket (fin de la transcripción) → primer chunk de audio | Es el tramo que pide la rúbrica — server-side, no incluye la ida/vuelta de red hacia el navegador ni la reproducción del audio en el parlante. |
+
+**Esta corrida no ejerció `endOfSpeechLatencyMs`.** Las dos conversaciones de la corrida real (abajo) se condujeron con `user_message` directo (texto con `isVoice:true`), no con el flujo completo `audio_start` → frames de audio → `audio_end` — reproducir ese flujo exige audio real capturado por micrófono, que un script de backend no puede generar sin grabar o sintetizar voz de antemano. El mecanismo de este tramo (marca tomada en `ConversationGateway.handleAudioEnd`, consumida por el siguiente `user_message` del mismo socket) está cubierto por test automatizado en `apps/api/src/modules/conversation/conversation.gateway.spec.ts` y `apps/api/src/modules/metrics/turn-metrics.spec.ts`, no por esta corrida. La demo en vivo (app web con micrófono real) sí lo ejerce.
+
+### Corrida real — 2026-08-11
+
+Dos conversaciones completas contra el modelo real (`llama-3.3-70b-versatile` vía Groq), TTS real (Deepgram Aura-2) y embeddings reales (Gemini) — sin mocks. `docker compose up --build` sobre la imagen con este spec, corpus del reto ya sembrado.
+
+| | Sesión "Ana María Restrepo" | Sesión "Carlos Gómez" |
+|---|---|---|
+| Turnos del paciente | 6 | 5 |
+| Desenlace | escaló (`status: fail`) — dos áreas en amarillo (dolor + hinchazón) acumularon a rojo por SPEC 10, no por una sola bandera roja | escaló (`status: fail`) — sangrado, fiebre 39.5°, dolor 9/10: banderas rojas explícitas |
+| `responseLatencyMs` P50 / P95 | 5432 / 8038 | 6235 / 9427 |
+| Tokens entrada / salida | 19894 / 613 | 15180 / 386 |
+| Invocaciones al LLM (`llmCallsPerTurn`) | 6 (1.0) | 5 (1.0) |
+| Consultas al RAG (`ragQueriesPerTurn`) | 8 (1.33) | 20 (4.0) |
+| Costo estimado | $0.0122 | $0.0093 |
+
+Las dos sesiones de esta corrida terminaron escaladas — no fue el guion buscado (una pensada para cerrar sin novedad), sino el comportamiento real del triage sobre el texto enviado; se reporta tal cual, sin repetir la corrida hasta obtener el resultado "bonito". La sesión de Carlos Gómez reporta `ragQueriesPerTurn: 4.0` en los 4 turnos con síntomas graves porque el filtro de relevancia no encontró citas del corpus para ese vocabulario y disparó el respaldo de multi-query de SPEC 09 (1 intento original + 3 reformulaciones) en cada uno — la cifra no está inflada, es el costo real de una conversación fuera de cobertura del corpus.
+
+Agregado de las dos sesiones (`overall`, 11 turnos):
+
+| Métrica | Valor |
+|---|---|
+| `responseLatencyMs` P50 / P95 / min / max | 6091 / 9410 / 3784 / 10144 |
+| `endOfSpeechLatencyMs` | sin muestras en esta corrida (ver arriba) |
+| Tokens de entrada / salida | 35074 / 999 |
+| Invocaciones al LLM | 11 (1 por turno — las reformulaciones de multi-query se cuentan aparte, ver `ragQueries`) |
+| Consultas al RAG | 28 |
+| Llamadas a embeddings (Gemini, aparte de `llmCalls`) | 251 |
+| Costo total estimado | $0.0215 |
+| Tarifa | `tarifa_publica` — $0.59 / $0.79 por millón de tokens (entrada/salida), sin confirmar contra la consola de la cuenta de Groq (ver `apps/api/src/modules/llm/pricing.ts`) |
+
+<details>
+<summary>JSON crudo de <code>GET /metrics</code> al cierre de esta corrida</summary>
+
+```json
+{
+  "model": "llama-3.3-70b-versatile",
+  "provider": "openai",
+  "pricing": {
+    "inputPerMTokUsd": 0.59,
+    "outputPerMTokUsd": 0.79,
+    "source": "tarifa_publica"
+  },
+  "observedTurns": 11,
+  "overall": {
+    "responseLatency": { "count": 11, "p50Ms": 6091, "p95Ms": 9410, "minMs": 3784, "maxMs": 10144 },
+    "endOfSpeechLatency": { "count": 0, "p50Ms": null, "p95Ms": null, "minMs": null, "maxMs": null },
+    "inputTokens": 35074,
+    "outputTokens": 999,
+    "costUsd": 0.021482870000000005,
+    "llmCalls": 11,
+    "embeddingCalls": 251,
+    "ragQueries": 28
+  },
+  "bySession": [
+    {
+      "sessionId": "928a4d3c-7ca5-4411-abfa-65ce8371d879",
+      "turns": 5,
+      "inputTokens": 15180,
+      "outputTokens": 386,
+      "costUsd": 0.00926114,
+      "llmCalls": 5,
+      "llmCallsPerTurn": 1,
+      "embeddingCalls": 155,
+      "ragQueries": 20,
+      "ragQueriesPerTurn": 4,
+      "sttCalls": 0,
+      "ttsCalls": 17,
+      "responseLatency": { "count": 5, "p50Ms": 6235, "p95Ms": 9427.4, "minMs": 5722, "maxMs": 10144 },
+      "endOfSpeechLatency": { "count": 0, "p50Ms": null, "p95Ms": null, "minMs": null, "maxMs": null }
+    },
+    {
+      "sessionId": "b75c382e-92d7-4d1a-8014-bcf34dc4e17b",
+      "turns": 6,
+      "inputTokens": 19894,
+      "outputTokens": 613,
+      "costUsd": 0.01222173,
+      "llmCalls": 6,
+      "llmCallsPerTurn": 1,
+      "embeddingCalls": 96,
+      "ragQueries": 8,
+      "ragQueriesPerTurn": 1.3333333333333333,
+      "sttCalls": 0,
+      "ttsCalls": 26,
+      "responseLatency": { "count": 6, "p50Ms": 5431.5, "p95Ms": 8038, "minMs": 3784, "maxMs": 8676 },
+      "endOfSpeechLatency": { "count": 0, "p50Ms": null, "p95Ms": null, "minMs": null, "maxMs": null }
+    }
+  ],
+  "recentTurns": [
+    { "at": "2026-08-11T04:04:06.593Z", "sessionId": "b75c382e-92d7-4d1a-8014-bcf34dc4e17b", "responseLatencyMs": 8676, "endOfSpeechLatencyMs": null, "spoke": true, "inputTokens": 2703, "outputTokens": 84, "costUsd": 0.0016611299999999998, "llmCalls": { "stream": 1, "structured": 0, "complete": 0 }, "embeddingCalls": 47, "ragQueries": 4, "sttCalls": 0, "ttsCalls": 5 },
+    { "at": "2026-08-11T04:04:18.796Z", "sessionId": "b75c382e-92d7-4d1a-8014-bcf34dc4e17b", "responseLatencyMs": 4426, "endOfSpeechLatencyMs": null, "spoke": true, "inputTokens": 3210, "outputTokens": 83, "costUsd": 0.00195947, "llmCalls": { "stream": 1, "structured": 0, "complete": 0 }, "embeddingCalls": 13, "ragQueries": 1, "sttCalls": 0, "ttsCalls": 4 },
+    { "at": "2026-08-11T04:04:38.112Z", "sessionId": "b75c382e-92d7-4d1a-8014-bcf34dc4e17b", "responseLatencyMs": 6124, "endOfSpeechLatencyMs": null, "spoke": true, "inputTokens": 3304, "outputTokens": 144, "costUsd": 0.00206312, "llmCalls": { "stream": 1, "structured": 0, "complete": 0 }, "embeddingCalls": 12, "ragQueries": 1, "sttCalls": 0, "ttsCalls": 5 },
+    { "at": "2026-08-11T04:04:59.254Z", "sessionId": "b75c382e-92d7-4d1a-8014-bcf34dc4e17b", "responseLatencyMs": 4988, "endOfSpeechLatencyMs": null, "spoke": true, "inputTokens": 3663, "outputTokens": 176, "costUsd": 0.00230021, "llmCalls": { "stream": 1, "structured": 0, "complete": 0 }, "embeddingCalls": 11, "ragQueries": 1, "sttCalls": 0, "ttsCalls": 7 },
+    { "at": "2026-08-11T04:05:07.312Z", "sessionId": "b75c382e-92d7-4d1a-8014-bcf34dc4e17b", "responseLatencyMs": 5875, "endOfSpeechLatencyMs": null, "spoke": true, "inputTokens": 3683, "outputTokens": 36, "costUsd": 0.0022014099999999996, "llmCalls": { "stream": 1, "structured": 0, "complete": 0 }, "embeddingCalls": 12, "ragQueries": 1, "sttCalls": 0, "ttsCalls": 2 },
+    { "at": "2026-08-11T04:05:20.383Z", "sessionId": "b75c382e-92d7-4d1a-8014-bcf34dc4e17b", "responseLatencyMs": 3784, "endOfSpeechLatencyMs": null, "spoke": true, "inputTokens": 3331, "outputTokens": 90, "costUsd": 0.0020363900000000003, "llmCalls": { "stream": 1, "structured": 0, "complete": 0 }, "embeddingCalls": 1, "ragQueries": 0, "sttCalls": 0, "ttsCalls": 3 },
+    { "at": "2026-08-11T04:05:43.524Z", "sessionId": "928a4d3c-7ca5-4411-abfa-65ce8371d879", "responseLatencyMs": 5722, "endOfSpeechLatencyMs": null, "spoke": true, "inputTokens": 2705, "outputTokens": 88, "costUsd": 0.0016654699999999998, "llmCalls": { "stream": 1, "structured": 0, "complete": 0 }, "embeddingCalls": 41, "ragQueries": 4, "sttCalls": 0, "ttsCalls": 4 },
+    { "at": "2026-08-11T04:05:57.751Z", "sessionId": "928a4d3c-7ca5-4411-abfa-65ce8371d879", "responseLatencyMs": 6561, "endOfSpeechLatencyMs": null, "spoke": true, "inputTokens": 3104, "outputTokens": 78, "costUsd": 0.00189298, "llmCalls": { "stream": 1, "structured": 0, "complete": 0 }, "embeddingCalls": 29, "ragQueries": 4, "sttCalls": 0, "ttsCalls": 3 },
+    { "at": "2026-08-11T04:06:09.524Z", "sessionId": "928a4d3c-7ca5-4411-abfa-65ce8371d879", "responseLatencyMs": 6091, "endOfSpeechLatencyMs": null, "spoke": true, "inputTokens": 3097, "outputTokens": 78, "costUsd": 0.0018888499999999999, "llmCalls": { "stream": 1, "structured": 0, "complete": 0 }, "embeddingCalls": 29, "ragQueries": 4, "sttCalls": 0, "ttsCalls": 3 },
+    { "at": "2026-08-11T04:06:25.912Z", "sessionId": "928a4d3c-7ca5-4411-abfa-65ce8371d879", "responseLatencyMs": 10144, "endOfSpeechLatencyMs": null, "spoke": true, "inputTokens": 3181, "outputTokens": 78, "costUsd": 0.0019384099999999998, "llmCalls": { "stream": 1, "structured": 0, "complete": 0 }, "embeddingCalls": 29, "ragQueries": 4, "sttCalls": 0, "ttsCalls": 3 },
+    { "at": "2026-08-11T04:06:37.597Z", "sessionId": "928a4d3c-7ca5-4411-abfa-65ce8371d879", "responseLatencyMs": 6235, "endOfSpeechLatencyMs": null, "spoke": true, "inputTokens": 3093, "outputTokens": 64, "costUsd": 0.0018754299999999998, "llmCalls": { "stream": 1, "structured": 0, "complete": 0 }, "embeddingCalls": 27, "ragQueries": 4, "sttCalls": 0, "ttsCalls": 4 }
+  ]
+}
+```
+
+</details>
+
+Reproducir: `docker compose up --build`, luego crear una sesión (`POST /sessions`) y conducir turnos por el WebSocket `/ws` (ver `apps/web/src/features/paciente/api/useConversation.ts` para el formato exacto de los eventos), y leer `GET /metrics`.
 
 ## Base de conocimiento (RAG)
 

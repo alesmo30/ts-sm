@@ -1,3 +1,5 @@
+import { TurnMetricsService } from '../metrics/turn-metrics';
+
 import { LlmMetricsService } from './metrics';
 
 function recordSample(service: LlmMetricsService, overrides: Partial<Parameters<LlmMetricsService['recordCall']>[0]> = {}) {
@@ -68,5 +70,25 @@ describe('LlmMetricsService', () => {
 
     const snapshot = service.getSnapshot();
     expect(snapshot.recent[0].ttftMs).toBeNull();
+  });
+
+  it('SPEC 13 — recordCall con method structured cuenta como llmCalls.structured del turno activo', async () => {
+    const turnMetrics = new TurnMetricsService();
+    const service = new LlmMetricsService(turnMetrics);
+
+    await turnMetrics.runInTurn('session-1', async () => {
+      recordSample(service, { method: 'structured' });
+      recordSample(service, { method: 'stream' });
+    });
+
+    const metric = turnMetrics.getSnapshot().recentTurns[0];
+    expect(metric.llmCalls.structured).toBe(1);
+    expect(metric.llmCalls.stream).toBe(1);
+    expect(metric.inputTokens).toBe(20);
+  });
+
+  it('SPEC 13 — sin TurnMetricsService inyectado, recordCall sigue funcionando (es opcional)', () => {
+    const service = new LlmMetricsService();
+    expect(() => recordSample(service)).not.toThrow();
   });
 });
