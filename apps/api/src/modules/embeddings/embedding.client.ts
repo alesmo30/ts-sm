@@ -69,17 +69,30 @@ export class EmbeddingClient {
       ...(options?.outputDimensionality ? { outputDimensionality: options.outputDimensionality } : {}),
     };
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const startedAt = Date.now();
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
 
-    if (!response.ok) {
-      throw new Error(`Gemini embeddings respondió ${response.status}: ${await response.text()}`);
+      if (!response.ok) {
+        throw new Error(`Gemini embeddings respondió ${response.status}: ${await response.text()}`);
+      }
+
+      const data = (await response.json()) as { embedding: { values: number[] } };
+      return data.embedding.values;
+    } finally {
+      // Un fetch fallido (timeout, 500) igual aporta su duración — es
+      // justamente la latencia que este spec existe para exponer.
+      try {
+        this.turnMetrics?.addStageMs('embedding', Date.now() - startedAt);
+      } catch (error) {
+        this.logger.debug(
+          `No fue posible registrar la latencia de este embedding: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
-
-    const data = (await response.json()) as { embedding: { values: number[] } };
-    return data.embedding.values;
   }
 }

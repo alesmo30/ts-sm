@@ -1,4 +1,4 @@
-import { ServerEventSchema, SessionDetailSchema, type ClientEvent, type TranscriptTurn } from '@ts-sm/shared';
+import { ServerEventSchema, SessionDetailSchema, type ClientEvent, type Session, type TranscriptTurn } from '@ts-sm/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiClient } from '../../../shared/lib/apiClient';
@@ -17,6 +17,8 @@ export interface UseConversationOptions {
   onKnowledgeUpdated?: (kbVersion: number) => void;
   /** Bandera roja, petición explícita o consentimiento a un vacío de conocimiento detectado por el agente. */
   onEscalationStarted?: (reason: 'red_flag' | 'patient_request' | 'knowledge_gap', countdownSeconds: number) => void;
+  /** El paciente confirmó por chat que quiere cerrar tras una escalada — la sesión ya quedó cerrada server-side. */
+  onSessionClosed?: (session: Session) => void;
 }
 
 export interface UseConversationResult {
@@ -50,6 +52,8 @@ export function useConversation(sessionId: string | null, options: UseConversati
   onKnowledgeUpdatedRef.current = options.onKnowledgeUpdated;
   const onEscalationStartedRef = useRef(options.onEscalationStarted);
   onEscalationStartedRef.current = options.onEscalationStarted;
+  const onSessionClosedRef = useRef(options.onSessionClosed);
+  onSessionClosedRef.current = options.onSessionClosed;
 
   useEffect(() => {
     if (!sessionId) return;
@@ -181,6 +185,16 @@ export function useConversation(sessionId: string | null, options: UseConversati
           break;
         case 'escalation_started':
           onEscalationStartedRef.current?.(event.reason, event.countdownSeconds);
+          break;
+        case 'session_closed':
+          // La sesión ya quedó cerrada server-side (confirmación por chat tras
+          // una escalada) — no hay turno de asistente nuevo que agregar, solo
+          // destrabar el streaming y avisar a la página.
+          setStreamingText('');
+          setIsStreaming(false);
+          setSttStatus('idle');
+          setIsSynthesizingVoice(false);
+          onSessionClosedRef.current?.(event.session);
           break;
       }
     };

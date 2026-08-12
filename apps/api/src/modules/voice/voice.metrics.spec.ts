@@ -59,4 +59,18 @@ describe('VoiceMetricsService', () => {
     const metrics = new VoiceMetricsService();
     expect(() => metrics.recordStt({ model: 'nova-3', durationMs: 1, ok: true })).not.toThrow();
   });
+
+  it('SPEC 14 — recordStt/recordTts propagan durationMs a stageMs.stt/tts del turno activo', async () => {
+    const turnMetrics = new TurnMetricsService();
+    const metrics = new VoiceMetricsService(turnMetrics);
+
+    await turnMetrics.runInTurn('session-1', async () => {
+      metrics.recordStt({ model: 'nova-3', durationMs: 120, ok: true });
+      metrics.recordTts({ model: 'aura-2-celeste-es', durationMs: 80, ok: true });
+    });
+
+    const metric = turnMetrics.getSnapshot().recentTurns[0];
+    expect(metric.stageMs.stt).toBe(120);
+    expect(metric.stageMs.tts).toBe(80);
+  });
 });

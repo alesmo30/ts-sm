@@ -24,6 +24,9 @@ export function PriorityTable({ patients, selectedId, onSelect }: PriorityTableP
               <th className="border-b border-border pb-3 pr-3 font-mono text-[11px] uppercase tracking-[0.05em] text-muted">
                 Solicitado por
               </th>
+              <th className="border-b border-border pb-3 pr-3 font-mono text-[11px] uppercase tracking-[0.05em] text-muted">
+                Fecha
+              </th>
               <th className="border-b border-border pb-3 font-mono text-[11px] uppercase tracking-[0.05em] text-muted">
                 Estado
               </th>
@@ -48,6 +51,9 @@ export function PriorityTable({ patients, selectedId, onSelect }: PriorityTableP
                 </td>
                 <td className="border-b border-border py-3 pr-3 text-[13.5px] text-fg">
                   {patient.requestedBy}
+                </td>
+                <td className="border-b border-border py-3 pr-3 text-[13.5px] text-fg">
+                  {patient.sessionDate ?? '—'}
                 </td>
                 <td className="border-b border-border py-3">
                   <StatusTag variant={patient.status} />
@@ -75,7 +81,10 @@ export function PriorityTable({ patients, selectedId, onSelect }: PriorityTableP
                 <StatusTag variant={patient.status} />
               </div>
               <span className="text-[12.5px] text-muted">{patient.procedure}</span>
-              <span className="text-[12px] text-muted">Solicitado por {patient.requestedBy}</span>
+              <span className="text-[12px] text-muted">
+                Solicitado por {patient.requestedBy}
+                {patient.sessionDate ? ` · ${patient.sessionDate}` : ''}
+              </span>
             </button>
           </li>
         ))}

@@ -13,5 +13,8 @@ export const PriorityPatientSchema = z.object({
   outcome: z.string(),
   durationSeconds: z.number().int(),
   caseNotes: z.string(),
+  // Fecha de la sesión vinculada (sessions.date, 'YYYY-MM-DD'). Null cuando
+  // sessionId es null (la sesión que la originó fue borrada).
+  sessionDate: z.string().nullable(),
 });
 export type PriorityPatient = z.infer<typeof PriorityPatientSchema>;

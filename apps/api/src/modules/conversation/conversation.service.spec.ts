@@ -1257,6 +1257,125 @@ describe('ConversationService', () => {
     expect(escalationService.escalate).not.toHaveBeenCalled();
   });
 
+  it('cierra la sesión de verdad si el paciente confirma "cerremos ya" tras una escalada (SPEC 14 fix)', async () => {
+    const turns: TranscriptTurn[] = [];
+    let seq = 0;
+
+    const sessionsService = {
+      addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+        const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text });
+        turns.push(turn);
+        return Promise.resolve(turn);
+      }),
+      getDetail: jest.fn(() =>
+        Promise.resolve({ id: SESSION_ID, turns, createdAt: new Date(Date.now() - 60_000) } as unknown as SessionDetail),
+      ),
+      update: jest.fn((_id: string, patch: unknown) => Promise.resolve({ id: SESSION_ID, ...(patch as object) } as unknown as Session)),
+    };
+
+    class EscalatingPort extends FakePort {
+      async *stream(): AsyncIterable<LlmDelta> {
+        yield {
+          type: 'text',
+          text: 'Esto debe ser revisado por un médico. ¿Quieres comentarme algo más antes de cerrar, o prefieres cerrar ya?\n[[ESCALAR]]',
+        };
+        yield {
+          type: 'done',
+          completion: {
+            text: 'Esto debe ser revisado por un médico. ¿Quieres comentarme algo más antes de cerrar, o prefieres cerrar ya?\n[[ESCALAR]]',
+            model: 'mock',
+            usage: { inputTokens: 5, outputTokens: 3, costUsd: 0 },
+            latencyMs: 10,
+          },
+        };
+      }
+    }
+
+    const escalationService = fakeEscalationService();
+    (escalationService.escalate as jest.Mock).mockResolvedValue(true);
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        TurnMetricsService,
+        { provide: EscalationService, useValue: escalationService },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
+        { provide: LlmPort, useValue: new EscalatingPort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+
+    const firstEscalated = await service.handleUserMessage(SESSION_ID, 'tengo sangrado', false, () => {});
+    expect(firstEscalated).toBe(true);
+
+    const secondCallEvents: unknown[] = [];
+    const secondEscalated = await service.handleUserMessage(SESSION_ID, 'cerremos ya', false, (event) =>
+      secondCallEvents.push(event),
+    );
+
+    expect(secondEscalated).toBe(true);
+    expect(sessionsService.update).toHaveBeenCalledWith(
+      SESSION_ID,
+      expect.objectContaining({ closedAt: expect.any(Date) }),
+    );
+    // Un solo addTurn más (el turno del paciente con "cerremos ya") — nunca
+    // un turno de asistente nuevo, porque este mensaje no pasa por el LLM.
+    expect(sessionsService.addTurn).toHaveBeenCalledTimes(3);
+    expect(sessionsService.addTurn.mock.calls[2][1]).toMatchObject({ who: 'patient', text: 'cerremos ya' });
+
+    // El segundo turno solo guarda el mensaje del paciente y cierra — nunca
+    // pasa por el LLM (sin delta, sin turno de asistente nuevo).
+    const secondCallEventTypes = secondCallEvents.map((event) => (event as { type: string }).type);
+    expect(secondCallEventTypes).toEqual(['turn_saved', 'session_closed']);
+  });
+
+  it('NO cierra la sesión con "cerremos ya" si no hubo una escalada en el turno anterior', async () => {
+    const turns: TranscriptTurn[] = [];
+    let seq = 0;
+
+    const sessionsService = {
+      addTurn: jest.fn((_sessionId: string, input: CreateTranscriptTurnInput) => {
+        const turn = fakeTurn({ seq: seq++, who: input.who, text: input.text });
+        turns.push(turn);
+        return Promise.resolve(turn);
+      }),
+      getDetail: jest.fn(() => Promise.resolve({ id: SESSION_ID, turns } as unknown as SessionDetail)),
+      update: jest.fn(),
+    };
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ConversationService,
+        LlmMetricsService,
+        TurnMetricsService,
+        { provide: EscalationService, useValue: fakeEscalationService() },
+        { provide: SessionsService, useValue: withTriageDefaults(sessionsService) },
+        { provide: LlmPort, useValue: new FakePort() },
+        { provide: VoiceService, useValue: fakeVoiceService },
+        { provide: RetrievalService, useValue: fakeRetrievalService() },
+        { provide: RedFlagDetectorService, useValue: fakeRedFlagDetector() },
+        { provide: CitationRelevanceService, useValue: fakeCitationRelevanceService() },
+      ],
+    }).compile();
+
+    const service = moduleRef.get(ConversationService);
+    const events: unknown[] = [];
+
+    await service.handleUserMessage(SESSION_ID, 'hola, todo bien', false, () => {});
+    await service.handleUserMessage(SESSION_ID, 'cerremos ya', false, (event) => events.push(event));
+
+    expect(sessionsService.update).not.toHaveBeenCalled();
+    const eventTypes = events.map((event) => (event as { type: string }).type);
+    expect(eventTypes).not.toContain('session_closed');
+    expect(eventTypes).toContain('done');
+  });
+
   it('emite un evento error y no rompe si el puerto falla', async () => {
     const savedTurns: TranscriptTurn[] = [];
     const sessionsService = {

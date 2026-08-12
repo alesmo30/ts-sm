@@ -57,7 +57,10 @@ export class VoiceMetricsService {
     };
     this.totalSttCalls += 1;
     this.push(metric);
-    this.recordTurnCall(() => this.turnMetrics?.addSttCall());
+    this.recordTurnCall(() => {
+      this.turnMetrics?.addSttCall();
+      this.turnMetrics?.addStageMs('stt', input.durationMs);
+    });
     return metric;
   }
 
@@ -73,7 +76,10 @@ export class VoiceMetricsService {
     };
     this.totalTtsCalls += 1;
     this.push(metric);
-    this.recordTurnCall(() => this.turnMetrics?.addTtsCall());
+    this.recordTurnCall(() => {
+      this.turnMetrics?.addTtsCall();
+      this.turnMetrics?.addStageMs('tts', input.durationMs);
+    });
     return metric;
   }
 

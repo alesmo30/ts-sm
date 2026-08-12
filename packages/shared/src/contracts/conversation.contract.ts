@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { TranscriptTurnSchema } from './session.contract';
+import { SessionSchema, TranscriptTurnSchema } from './session.contract';
 
 export const ClientEventSchema = z.discriminatedUnion('type', [
   z.object({
@@ -83,6 +83,14 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
     type: z.literal('escalation_started'),
     reason: z.enum(['red_flag', 'patient_request', 'knowledge_gap']),
     countdownSeconds: z.number().int(),
+  }),
+  z.object({
+    // El paciente confirmó por texto/voz que quiere cerrar tras una escalada
+    // ("cerremos ya"), sin usar la modal de cuenta regresiva — la sesión ya
+    // quedó cerrada server-side cuando llega este evento (ver SPEC 14 fix,
+    // problema-cierre-confirmado-post-escalacion.md).
+    type: z.literal('session_closed'),
+    session: SessionSchema,
   }),
 ]);
 export type ServerEvent = z.infer<typeof ServerEventSchema>;

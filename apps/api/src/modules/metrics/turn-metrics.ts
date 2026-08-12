@@ -6,6 +6,31 @@ import { latencyStats, type LatencyStats } from './percentiles';
 
 export type LlmCallMethod = 'stream' | 'structured' | 'complete';
 
+export type TurnStage = 'rag' | 'embedding' | 'llm' | 'stt' | 'tts';
+
+/** Milisegundos acumulados por etapa dentro de un turno. Las etapas se solapan:
+ *  `rag` incluye el embedOne de la consulta, que también cuenta en `embedding`.
+ *  Su suma NO es responseLatencyMs. */
+export interface StageMs {
+  rag: number;
+  embedding: number;
+  llm: number;
+  stt: number;
+  tts: number;
+}
+
+export type StageLatencyStats = Record<TurnStage, LatencyStats>;
+
+const STAGES: TurnStage[] = ['rag', 'embedding', 'llm', 'stt', 'tts'];
+
+function emptyStageMs(): StageMs {
+  return { rag: 0, embedding: 0, llm: 0, stt: 0, tts: 0 };
+}
+
+function emptyStageLatencies(): Record<TurnStage, number[]> {
+  return { rag: [], embedding: [], llm: [], stt: [], tts: [] };
+}
+
 /** Lo que se acumula mientras el turno está en vuelo (dentro del AsyncLocalStorage). */
 interface TurnScope {
   sessionId: string;
@@ -20,6 +45,7 @@ interface TurnScope {
   ragQueries: number;
   sttCalls: number;
   ttsCalls: number;
+  stageMs: StageMs;
 }
 
 /** El turno cerrado, ya inmutable, que entra al buffer. */
@@ -37,6 +63,7 @@ export interface TurnMetric {
   ragQueries: number;
   sttCalls: number;
   ttsCalls: number;
+  stageMs: StageMs;
 }
 
 export interface SessionMetrics {
@@ -54,6 +81,7 @@ export interface SessionMetrics {
   ttsCalls: number;
   responseLatency: LatencyStats;
   endOfSpeechLatency: LatencyStats;
+  stageLatency: StageLatencyStats;
 }
 
 export interface TurnMetricsSnapshot {
@@ -67,6 +95,7 @@ export interface TurnMetricsSnapshot {
     llmCalls: number;
     embeddingCalls: number;
     ragQueries: number;
+    stageLatency: StageLatencyStats;
   };
   bySession: SessionMetrics[];
   recentTurns: TurnMetric[];
@@ -85,6 +114,7 @@ interface SessionAgg {
   ttsCalls: number;
   responseLatencies: number[];
   endOfSpeechLatencies: number[];
+  stageLatencies: Record<TurnStage, number[]>;
 }
 
 const RECENT_TURNS_BUFFER_SIZE = 50;
@@ -105,6 +135,7 @@ function emptyScope(sessionId: string): TurnScope {
     ragQueries: 0,
     sttCalls: 0,
     ttsCalls: 0,
+    stageMs: emptyStageMs(),
   };
 }
 
@@ -127,6 +158,7 @@ export class TurnMetricsService {
   private observedTurns = 0;
   private readonly overallResponseLatencies: number[] = [];
   private readonly overallEndOfSpeechLatencies: number[] = [];
+  private readonly overallStageLatencies: Record<TurnStage, number[]> = emptyStageLatencies();
   private overallInputTokens = 0;
   private overallOutputTokens = 0;
   private overallCostUsd = 0;
@@ -190,6 +222,14 @@ export class TurnMetricsService {
     scope.ttsCalls += 1;
   }
 
+  /** Suma `ms` a la etapa del turno en vuelo. No-op sin turno activo. No lanza. */
+  addStageMs(stage: TurnStage, ms: number): void {
+    const scope = this.als.getStore();
+    if (!scope) return;
+    if (!Number.isFinite(ms) || ms < 0) return; // una medición corrupta no envenena el p95
+    scope.stageMs[stage] += ms;
+  }
+
   getSnapshot(): TurnMetricsSnapshot {
     return {
       observedTurns: this.observedTurns,
@@ -202,10 +242,18 @@ export class TurnMetricsService {
         llmCalls: this.overallLlmCalls,
         embeddingCalls: this.overallEmbeddingCalls,
         ragQueries: this.overallRagQueries,
+        stageLatency: this.toStageLatencyStats(this.overallStageLatencies),
       },
       bySession: [...this.sessions.values()].reverse().map((agg) => this.toSessionMetrics(agg)),
       recentTurns: [...this.recentTurns],
     };
+  }
+
+  private toStageLatencyStats(stageLatencies: Record<TurnStage, number[]>): StageLatencyStats {
+    return STAGES.reduce((acc, stage) => {
+      acc[stage] = latencyStats(stageLatencies[stage]);
+      return acc;
+    }, {} as StageLatencyStats);
   }
 
   private closeTurn(scope: TurnScope): void {
@@ -231,6 +279,7 @@ export class TurnMetricsService {
         ragQueries: scope.ragQueries,
         sttCalls: scope.sttCalls,
         ttsCalls: scope.ttsCalls,
+        stageMs: { ...scope.stageMs },
       };
 
       this.observedTurns += 1;
@@ -246,6 +295,14 @@ export class TurnMetricsService {
         if (endOfSpeechLatencyMs !== null) {
           pushWindowed(this.overallEndOfSpeechLatencies, endOfSpeechLatencyMs, LATENCY_WINDOW_SIZE);
         }
+      }
+
+      // Las etapas se acumulan siempre, hable o no el asistente (a diferencia
+      // de responseLatency) — un turno de texto igual gastó RAG/embedding/LLM.
+      // Un cero (etapa no ejercida) no entra a la ventana de esa etapa.
+      for (const stage of STAGES) {
+        const ms = metric.stageMs[stage];
+        if (ms > 0) pushWindowed(this.overallStageLatencies[stage], ms, LATENCY_WINDOW_SIZE);
       }
 
       this.recentTurns.push(metric);
@@ -280,6 +337,7 @@ export class TurnMetricsService {
         ttsCalls: 0,
         responseLatencies: [],
         endOfSpeechLatencies: [],
+        stageLatencies: emptyStageLatencies(),
       };
     }
 
@@ -297,6 +355,10 @@ export class TurnMetricsService {
       if (metric.endOfSpeechLatencyMs !== null) {
         pushWindowed(agg.endOfSpeechLatencies, metric.endOfSpeechLatencyMs, LATENCY_WINDOW_SIZE);
       }
+    }
+    for (const stage of STAGES) {
+      const ms = metric.stageMs[stage];
+      if (ms > 0) pushWindowed(agg.stageLatencies[stage], ms, LATENCY_WINDOW_SIZE);
     }
 
     this.sessions.set(metric.sessionId, agg);
@@ -323,6 +385,7 @@ export class TurnMetricsService {
       ttsCalls: agg.ttsCalls,
       responseLatency: latencyStats(agg.responseLatencies),
       endOfSpeechLatency: latencyStats(agg.endOfSpeechLatencies),
+      stageLatency: this.toStageLatencyStats(agg.stageLatencies),
     };
   }
 }

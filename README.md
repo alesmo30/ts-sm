@@ -224,6 +224,72 @@ Agregado de las dos sesiones (`overall`, 11 turnos):
 
 Reproducir: `docker compose up --build`, luego crear una sesión (`POST /sessions`) y conducir turnos por el WebSocket `/ws` (ver `apps/web/src/features/paciente/api/useConversation.ts` para el formato exacto de los eventos), y leer `GET /metrics`.
 
+### Latencia por etapa (SPEC 14)
+
+`responseLatencyMs` dice cuánto tardó el turno completo, pero no dónde se fue ese tiempo. `GET /metrics` reparte los milisegundos por etapa externa en `overall.stageLatency` y `bySession[].stageLatency` (forma `LatencyStats`, igual que las demás), y en `stageMs` por turno individual dentro de `recentTurns`. Ver `specs/14-latencia-por-etapa.md`.
+
+| Etapa | Qué mide |
+|---|---|
+| `rag` | `RetrievalService.search()` completo — rama léxica + semántica en paralelo, incluido el `embedOne` de la consulta. Con fallback multi-query (SPEC 09), las 4 invocaciones de `search()` de un turno suman sobre la misma etapa. |
+| `embedding` | El `fetch` a Gemini dentro de `EmbeddingClient.embedOne()`. Cubre retrieval semántico, `CitationRelevanceService` y `RedFlagDetectorService` — todo lo que embebe texto en el turno, no solo RAG. Un `embedOne` que falla igual aporta su duración: es la latencia de un timeout la que interesa medir. |
+| `llm` | `input.latencyMs` que ya recibe `LlmMetricsService.recordCall()` — la llamada al único LLM permitido. |
+| `stt` | `input.durationMs` que ya recibe `VoiceMetricsService.recordStt()`. |
+| `tts` | `input.durationMs` que ya recibe `VoiceMetricsService.recordTts()`. |
+
+**`rag` y `embedding` se solapan a propósito — su suma NO es `responseLatencyMs`.** `search()` incluye el `embedOne` de la consulta, así que esos milisegundos cuentan en las dos etapas; `embedding` además incluye llamadas fuera de `search()` (filtrado de citas, backstop de escalada). Restar el solape daría un número más "limpio" pero mentiroso. Cada etapa reporta `count` aparte, así que una etapa nunca ejercida en el turno queda en `count: 0` y percentiles `null`, no en `0` — un turno de texto sin audio no diluye el p50 de `stt`/`tts` con ceros.
+
+**Esta corrida no ejerció `stt`.** Los cuatro turnos se condujeron por WebSocket (`user_message` con `isVoice:false`), sin pasar por `audio_start`/frames de audio/`audio_end` — mismo motivo que `endOfSpeechLatencyMs` arriba. `tts` sí se ejerció: la respuesta se sintetiza siempre, la haya pedido el paciente en voz o no. El mecanismo de `stt` está cubierto por test automatizado (`voice.metrics.spec.ts`, `turn-metrics.spec.ts`); la demo en vivo con micrófono real lo ejerce.
+
+#### Corrida real — 2026-08-12
+
+Una sesión, 4 turnos, contra el modelo real (`llama-3.3-70b-versatile` vía Groq), TTS real (Deepgram Aura-2) y embeddings reales (Gemini) — sin mocks. `docker compose up --build`, conversación conducida por `/ws`. Este turno no disparó el respaldo de multi-query de SPEC 09 (`ragQueries: 1` por turno) — a diferencia de la corrida de SPEC 13 arriba, que sí lo hizo en una de sus sesiones.
+
+| Etapa | count | p50Ms | p95Ms | minMs | maxMs |
+|---|---|---|---|---|---|
+| `rag` | 4 | 576.5 | 821.3 | 439 | 859 |
+| `embedding` | 4 | 6347.5 | 6460.2 | 6274 | 6477 |
+| `llm` | 4 | 795.5 | 1086.4 | 622 | 1129 |
+| `stt` | 0 | null | null | null | null |
+| `tts` | 4 | 6645 | 15912.1 | 3504 | 17073 |
+
+**Lectura:** con `responseLatencyMs` p50 de 4849.5 ms, la etapa `embedding` (p50 6347.5 ms) es, ella sola, más larga que el turno completo — porque `embedding` cuenta las ~12 llamadas a Gemini que dispara `CitationRelevanceService` filtrando citas una por una, no una sola llamada. El LLM (p50 795.5 ms) es una fracción menor del turno frente al costo agregado de embeddings; RAG (p50 576.5 ms, sin multi-query en esta corrida) es la etapa más barata de las tres que sí se ejercitaron server-side.
+
+<details>
+<summary>JSON crudo de <code>GET /metrics</code> al cierre de esta corrida</summary>
+
+```json
+{
+  "observedTurns": 4,
+  "overall": {
+    "responseLatency": { "count": 4, "p50Ms": 4849.5, "p95Ms": 6038.95, "minMs": 3515, "maxMs": 6199 },
+    "endOfSpeechLatency": { "count": 0, "p50Ms": null, "p95Ms": null, "minMs": null, "maxMs": null },
+    "inputTokens": 13147,
+    "outputTokens": 287,
+    "costUsd": 0.00798346,
+    "llmCalls": 4,
+    "embeddingCalls": 48,
+    "ragQueries": 4,
+    "stageLatency": {
+      "rag": { "count": 4, "p50Ms": 576.5, "p95Ms": 821.3499999999999, "minMs": 439, "maxMs": 859 },
+      "embedding": { "count": 4, "p50Ms": 6347.5, "p95Ms": 6460.200000000001, "minMs": 6274, "maxMs": 6477 },
+      "llm": { "count": 4, "p50Ms": 795.5, "p95Ms": 1086.3999999999999, "minMs": 622, "maxMs": 1129 },
+      "stt": { "count": 0, "p50Ms": null, "p95Ms": null, "minMs": null, "maxMs": null },
+      "tts": { "count": 4, "p50Ms": 6645, "p95Ms": 15912.149999999998, "minMs": 3504, "maxMs": 17073 }
+    }
+  },
+  "recentTurns": [
+    { "responseLatencyMs": 6199, "spoke": true, "ragQueries": 1, "stageMs": { "rag": 608, "embedding": 6365, "llm": 1129, "stt": 0, "tts": 17073 } },
+    { "responseLatencyMs": 4567, "spoke": true, "ragQueries": 1, "stageMs": { "rag": 545, "embedding": 6477, "llm": 746, "stt": 0, "tts": 3956 } },
+    { "responseLatencyMs": 5132, "spoke": true, "ragQueries": 1, "stageMs": { "rag": 859, "embedding": 6330, "llm": 845, "stt": 0, "tts": 9334 } },
+    { "responseLatencyMs": 3515, "spoke": true, "ragQueries": 1, "stageMs": { "rag": 439, "embedding": 6274, "llm": 622, "stt": 0, "tts": 3504 } }
+  ]
+}
+```
+
+`recentTurns` recortado a los campos relevantes de esta etapa para legibilidad — el JSON real de `GET /metrics` incluye también `at`, `sessionId`, tokens, costo y desglose de `llmCalls`/`embeddingCalls`/`ttsCalls` por turno, igual que en la corrida de SPEC 13.
+
+</details>
+
 ## Base de conocimiento (RAG)
 
 El corpus clínico (107 PDFs del kit del reto, español e inglés mezclados) no se commitea — ver `specs/07-rag-y-citas-trazables.md`. Flujo completo, de cero a base sembrada:

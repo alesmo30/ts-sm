@@ -68,6 +68,33 @@ function isShortAffirmative(text: string): boolean {
   return words.some((word) => AFFIRMATIVE_TOKENS.includes(word));
 }
 
+// Bug reportado en QA manual: tras [[ESCALAR]], el prompt hace una pregunta
+// disyuntiva ("¿quieres comentarme algo más, o prefieres cerrar ya?") — un
+// "sí" corto ahí es genuinamente ambiguo entre las dos opciones, así que NO
+// se reutiliza AFFIRMATIVE_TOKENS/isShortAffirmative (ese vocabulario es para
+// una pregunta de sí/no simple, no disyuntiva). Vocabulario cerrado propio,
+// mismo criterio que FAREWELL_PHRASES: nunca una segunda llamada al LLM solo
+// para clasificar esto (REGLAS.md). Ver problema-cierre-confirmado-post-escalacion.md.
+const CLOSE_CONFIRMATION_PHRASES = [
+  'cerremos ya',
+  'cerremos',
+  'cerrar ya',
+  'cierra ya',
+  'ya podemos cerrar',
+  'podemos cerrar',
+  'prefiero cerrar',
+  'quiero cerrar',
+  'cierra la sesion',
+  'cierra la conversacion',
+  'terminemos',
+  'terminemos ya',
+];
+
+function isCloseConfirmation(text: string): boolean {
+  const normalized = normalize(text);
+  return CLOSE_CONFIRMATION_PHRASES.some((phrase) => normalized.includes(phrase));
+}
+
 // El retrieval de este turno concatena el texto del turno anterior del
 // asistente con el mensaje del paciente (ver retrievalQuery abajo), porque
 // una pregunta de seguimiento corta ("¿y si sangra?") no trae vocabulario
@@ -121,6 +148,14 @@ export class ConversationService {
   // el paciente confirma en el turno siguiente sin mencionar ninguna alarma, esas
   // áreas quedan cubiertas por confirmación agrupada en vez de una por una.
   private readonly pendingGroupedConfirmationBySession = new Map<string, boolean>();
+
+  // Marca, por sesión, que el turno de asistente que se acaba de guardar
+  // terminó en [[ESCALAR]] — es decir, que el prompt le hizo al paciente la
+  // pregunta de cierre ("¿quieres comentarme algo más, o prefieres cerrar
+  // ya?"). Se pone en true en TODO turno con [[ESCALAR]], no solo el primero:
+  // el prompt repite esa pregunta en cada escalada, incluida una repetida
+  // (ver problema-cierre-confirmado-post-escalacion.md).
+  private readonly pendingCloseConfirmationBySession = new Map<string, boolean>();
 
   constructor(
     private readonly sessionsService: SessionsService,
@@ -225,6 +260,22 @@ export class ConversationService {
       citations: [],
     });
     emit({ type: 'turn_saved', turn: patientTurn });
+
+    // El turno de asistente anterior pudo terminar en [[ESCALAR]], que
+    // siempre cierra preguntando si el paciente quiere cerrar ya — si este
+    // mensaje confirma eso, se cierra la sesión de verdad (mismo camino que
+    // el botón/modal), en vez de seguir el flujo normal de streaming. Bug
+    // reportado: sin esto, la conversación queda colgada esperando una
+    // respuesta que nunca llega (ver problema-cierre-confirmado-post-escalacion.md).
+    const closeWasOffered = this.pendingCloseConfirmationBySession.get(sessionId) ?? false;
+    this.pendingCloseConfirmationBySession.delete(sessionId);
+    if (closeWasOffered && isCloseConfirmation(text)) {
+      const closed = await this.closeSession(sessionId);
+      if (closed) {
+        emit({ type: 'session_closed', session: closed });
+      }
+      return true;
+    }
 
     const detail = await this.sessionsService.getDetail(sessionId);
 
@@ -342,6 +393,9 @@ export class ConversationService {
     }
     if (streamResult.groupedConfirmationDetected) {
       this.pendingGroupedConfirmationBySession.set(sessionId, true);
+    }
+    if (streamResult.escalated) {
+      this.pendingCloseConfirmationBySession.set(sessionId, true);
     }
 
     if (escalationDetected) {
@@ -678,6 +732,7 @@ export class ConversationService {
     await this.escalationService.onSessionClosed(sessionId);
     this.pendingKnowledgeGapBySession.delete(sessionId);
     this.pendingGroupedConfirmationBySession.delete(sessionId);
+    this.pendingCloseConfirmationBySession.delete(sessionId);
     return closed;
   }
 }

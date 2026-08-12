@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 
 import { DRIZZLE_CLIENT } from '../../database/database.module';
 import type { DrizzleClient } from '../../database/drizzle.client';
-import { priorityPatients } from '../../database/schema';
+import { priorityPatients, sessions } from '../../database/schema';
 
 export interface PriorityPatientRow {
   id: string;
@@ -16,18 +16,40 @@ export interface PriorityPatientRow {
   outcome: string;
   durationSeconds: number;
   caseNotes: string;
+  sessionDate: string | null;
 }
+
+const priorityPatientColumns = {
+  id: priorityPatients.id,
+  sessionId: priorityPatients.sessionId,
+  patientName: priorityPatients.patientName,
+  procedure: priorityPatients.procedure,
+  requestedBy: priorityPatients.requestedBy,
+  status: priorityPatients.status,
+  llmSummary: priorityPatients.llmSummary,
+  outcome: priorityPatients.outcome,
+  durationSeconds: priorityPatients.durationSeconds,
+  caseNotes: priorityPatients.caseNotes,
+  sessionDate: sessions.date,
+};
 
 @Injectable()
 export class PatientsRepository {
   constructor(@Inject(DRIZZLE_CLIENT) private readonly db: DrizzleClient) {}
 
   async findAll(): Promise<PriorityPatientRow[]> {
-    return this.db.select().from(priorityPatients);
+    return this.db
+      .select(priorityPatientColumns)
+      .from(priorityPatients)
+      .leftJoin(sessions, eq(priorityPatients.sessionId, sessions.id));
   }
 
   async findById(id: string): Promise<PriorityPatientRow | undefined> {
-    const [row] = await this.db.select().from(priorityPatients).where(eq(priorityPatients.id, id));
+    const [row] = await this.db
+      .select(priorityPatientColumns)
+      .from(priorityPatients)
+      .leftJoin(sessions, eq(priorityPatients.sessionId, sessions.id))
+      .where(eq(priorityPatients.id, id));
     return row;
   }
 }

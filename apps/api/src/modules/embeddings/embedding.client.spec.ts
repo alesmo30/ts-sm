@@ -17,6 +17,16 @@ function requestBody(fetchMock: jest.Mock): Record<string, unknown> {
   return JSON.parse(init.body) as Record<string, unknown>;
 }
 
+function mockFetchFailureOnce(status: number): jest.Mock {
+  const fetchMock = jest.fn().mockResolvedValue({
+    ok: false,
+    status,
+    text: async () => 'error de Gemini',
+  });
+  (global as unknown as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
+  return fetchMock;
+}
+
 describe('EmbeddingClient', () => {
   const config: EmbeddingConfig = { apiKey: 'fake-key', model: 'gemini-embedding-001' };
 
@@ -68,5 +78,32 @@ describe('EmbeddingClient', () => {
     const client = new EmbeddingClient(config);
 
     await expect(client.embedOne('texto')).resolves.toEqual([0.1, 0.2]);
+  });
+
+  it('SPEC 14 — embedOne exitoso aporta su duración a stageMs.embedding', async () => {
+    mockFetchOnce([0.1, 0.2]);
+    const turnMetrics = new TurnMetricsService();
+    const client = new EmbeddingClient(config, turnMetrics);
+
+    await turnMetrics.runInTurn('session-1', async () => {
+      await client.embedOne('texto');
+    });
+
+    const metric = turnMetrics.getSnapshot().recentTurns[0];
+    expect(metric.stageMs.embedding).toBeGreaterThanOrEqual(0);
+  });
+
+  it('SPEC 14 — embedOne que falla (Gemini responde 500) igual aporta su duración a stageMs.embedding', async () => {
+    mockFetchFailureOnce(500);
+    const turnMetrics = new TurnMetricsService();
+    const client = new EmbeddingClient(config, turnMetrics);
+
+    await turnMetrics.runInTurn('session-1', async () => {
+      await expect(client.embedOne('texto')).rejects.toThrow('Gemini embeddings respondió 500');
+    });
+
+    const metric = turnMetrics.getSnapshot().recentTurns[0];
+    expect(metric.stageMs.embedding).toBeGreaterThanOrEqual(0);
+    expect(metric.embeddingCalls).toBe(1);
   });
 });

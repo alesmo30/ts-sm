@@ -70,7 +70,24 @@ export class RetrievalService {
         `No fue posible registrar la métrica de turno para esta consulta al RAG: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+    const startedAt = Date.now();
+    try {
+      return await this.doSearch(query, k);
+    } finally {
+      // SPEC 14 — mide el método completo (rama léxica + semántica en
+      // paralelo, incluido el embedOne de la consulta). Con multi-query, las
+      // cuatro invocaciones suman sobre el mismo turno.
+      try {
+        this.turnMetrics?.addStageMs('rag', Date.now() - startedAt);
+      } catch (error) {
+        this.logger.debug(
+          `No fue posible registrar la latencia de esta consulta al RAG: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+  }
 
+  private async doSearch(query: string, k: number): Promise<Citation[]> {
     // plainto_tsquery une los términos con AND: con la consulta enriquecida
     // (turno del asistente + texto del paciente, ver conversation.service.ts)
     // eso exige que TODOS los términos aparezcan en un mismo chunk, lo que en
