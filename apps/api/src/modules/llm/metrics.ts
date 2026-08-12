@@ -101,6 +101,7 @@ export class LlmMetricsService {
     // SPEC 13 — una falla acá nunca puede tumbar la llamada real al LLM.
     try {
       this.turnMetrics?.addLlmCall(input.method as LlmCallMethod, input.inputTokens, input.outputTokens, costUsd);
+      this.turnMetrics?.addStageMs('llm', input.latencyMs);
     } catch (error) {
       this.logger.debug(
         `No fue posible registrar la métrica de turno para esta llamada: ${error instanceof Error ? error.message : String(error)}`,

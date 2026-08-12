@@ -91,4 +91,16 @@ describe('LlmMetricsService', () => {
     const service = new LlmMetricsService();
     expect(() => recordSample(service)).not.toThrow();
   });
+
+  it('SPEC 14 — recordCall propaga latencyMs a stageMs.llm del turno activo', async () => {
+    const turnMetrics = new TurnMetricsService();
+    const service = new LlmMetricsService(turnMetrics);
+
+    await turnMetrics.runInTurn('session-1', async () => {
+      recordSample(service, { latencyMs: 2200 });
+    });
+
+    const metric = turnMetrics.getSnapshot().recentTurns[0];
+    expect(metric.stageMs.llm).toBe(2200);
+  });
 });

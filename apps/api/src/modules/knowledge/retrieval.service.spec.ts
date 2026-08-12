@@ -219,4 +219,21 @@ describe('RetrievalService', () => {
 
     await expect(service.search('consulta')).resolves.toHaveLength(1);
   });
+
+  it('SPEC 14 — un turno con multi-query (4 invocaciones de search()) suma en stageMs.rag', async () => {
+    const db = makeLexicalOnlyDbMock([]);
+    const turnMetrics = new TurnMetricsService();
+    const service = new RetrievalService(db as unknown as DrizzleClient, fakeEmbeddingClient(), turnMetrics);
+
+    await turnMetrics.runInTurn('session-1', async () => {
+      await service.search('consulta original');
+      await service.search('variación 1');
+      await service.search('variación 2');
+      await service.search('variación 3');
+    });
+
+    const metric = turnMetrics.getSnapshot().recentTurns[0];
+    expect(metric.ragQueries).toBe(4);
+    expect(metric.stageMs.rag).toBeGreaterThanOrEqual(0);
+  });
 });

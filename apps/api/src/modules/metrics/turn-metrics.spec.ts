@@ -171,4 +171,93 @@ describe('TurnMetricsService', () => {
     expect(snapshot.recentTurns).toHaveLength(50);
     expect(snapshot.recentTurns[0].sessionId).toBe('session-1');
   });
+
+  describe('addStageMs', () => {
+    it('fuera de un turno activo no lanza y no altera el snapshot', () => {
+      const service = new TurnMetricsService();
+
+      expect(() => service.addStageMs('rag', 120)).not.toThrow();
+      expect(service.getSnapshot().observedTurns).toBe(0);
+    });
+
+    it('descarta NaN, Infinity y valores negativos sin alterar la etapa', async () => {
+      const service = new TurnMetricsService();
+
+      await service.runInTurn('session-1', async () => {
+        service.addStageMs('embedding', 100);
+        service.addStageMs('embedding', NaN);
+        service.addStageMs('embedding', Infinity);
+        service.addStageMs('embedding', -50);
+      });
+
+      expect(service.getSnapshot().recentTurns[0].stageMs.embedding).toBe(100);
+    });
+
+    it('acumula varias llamadas a la misma etapa dentro del mismo turno', async () => {
+      const service = new TurnMetricsService();
+
+      await service.runInTurn('session-1', async () => {
+        service.addStageMs('embedding', 100);
+        service.addStageMs('embedding', 50);
+      });
+
+      expect(service.getSnapshot().recentTurns[0].stageMs.embedding).toBe(150);
+    });
+
+    it('stageLatency reporta p50/p95 por etapa y count:0/null para una etapa nunca ejercida', async () => {
+      const service = new TurnMetricsService();
+
+      await service.runInTurn('session-1', async () => {
+        service.addStageMs('llm', 100);
+        service.markFirstAudio();
+      });
+      await service.runInTurn('session-1', async () => {
+        service.addStageMs('llm', 200);
+        service.markFirstAudio();
+      });
+
+      const snapshot = service.getSnapshot();
+      expect(snapshot.overall.stageLatency.llm.count).toBe(2);
+      expect(snapshot.overall.stageLatency.llm.p50Ms).toBe(150);
+      expect(snapshot.overall.stageLatency.stt.count).toBe(0);
+      expect(snapshot.overall.stageLatency.stt.p50Ms).toBeNull();
+    });
+
+    it('un turno que no usó una etapa no empuja un 0 a su ventana', async () => {
+      const service = new TurnMetricsService();
+
+      await service.runInTurn('session-1', async () => {
+        service.addStageMs('llm', 100);
+        service.markFirstAudio();
+      });
+
+      expect(service.getSnapshot().overall.stageLatency.stt.count).toBe(0);
+    });
+
+    it('las etapas se acumulan también en turnos con spoke=false', async () => {
+      const service = new TurnMetricsService();
+
+      await service.runInTurn('session-1', async () => {
+        service.addStageMs('rag', 300);
+      });
+
+      const snapshot = service.getSnapshot();
+      expect(snapshot.recentTurns[0].spoke).toBe(false);
+      expect(snapshot.overall.stageLatency.rag.count).toBe(1);
+      expect(snapshot.overall.stageLatency.rag.p50Ms).toBe(300);
+    });
+
+    it('bySession reporta stageLatency por sesión', async () => {
+      const service = new TurnMetricsService();
+
+      await service.runInTurn('session-a', async () => {
+        service.addStageMs('rag', 400);
+        service.markFirstAudio();
+      });
+
+      const session = service.getSnapshot().bySession.find((s) => s.sessionId === 'session-a');
+      expect(session?.stageLatency.rag.count).toBe(1);
+      expect(session?.stageLatency.rag.p50Ms).toBe(400);
+    });
+  });
 });
