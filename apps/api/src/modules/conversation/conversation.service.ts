@@ -400,10 +400,15 @@ export class ConversationService {
 
     if (escalationDetected) {
       const reason = consentAccepted ? 'knowledge_gap' : detectEscalationReason(text);
-      const created = await this.escalationService.escalate(sessionId, reason);
-      if (created) {
-        emit({ type: 'escalation_started', reason, countdownSeconds: ESCALATION_COUNTDOWN_SECONDS });
-      }
+      // escalate() es idempotente en la fila (UNIQUE(session_id)), pero el
+      // evento debe salir en TODO turno escalado, no solo el primero: el
+      // paciente puede cancelar la cuenta regresiva y seguir dando señales de
+      // querer cerrar/despedirse en turnos posteriores, y el timer tiene que
+      // reaparecer cada vez (bug reportado en QA: tras cancelar una vez, la
+      // sesión quedaba repitiendo el mismo mensaje de cierre sin volver a
+      // mostrar la cuenta regresiva).
+      await this.escalationService.escalate(sessionId, reason);
+      emit({ type: 'escalation_started', reason, countdownSeconds: ESCALATION_COUNTDOWN_SECONDS });
     } else {
       // Refresca el resumen cada N turnos posteriores a una escalada ya
       // creada, nunca en cada mensaje — es un no-op sin fila que actualizar.

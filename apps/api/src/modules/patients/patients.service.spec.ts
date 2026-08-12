@@ -17,6 +17,8 @@ function makePriorityPatientRow(overrides: Partial<PriorityPatientRow> = {}): Pr
     durationSeconds: 372,
     caseNotes: 'Notas del caso',
     sessionDate: '2026-08-10',
+    email: 'jorge.restrepo@example.com',
+    phone: '+573001234567',
     ...overrides,
   };
 }

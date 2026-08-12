@@ -89,9 +89,14 @@ export function PreSesion({ onStart, isStarting }: PreSesionProps) {
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-[12px] font-medium text-muted" htmlFor="pre-sesion-telefono">
-            Teléfono
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-[12px] font-medium text-muted" htmlFor="pre-sesion-telefono">
+              Teléfono
+            </label>
+            <span className="rounded-full bg-accent-soft px-2 py-[2px] text-[11px] font-medium text-accent">
+              Usa tu número real
+            </span>
+          </div>
           <input
             id="pre-sesion-telefono"
             type="tel"
@@ -99,6 +104,9 @@ export function PreSesion({ onStart, isStarting }: PreSesionProps) {
             onChange={(event) => handleChange('phone', event.target.value)}
             className="rounded-[8px] border border-border-mid bg-surface-2 px-3 py-2 text-[13.5px] text-fg"
           />
+          <p className="text-[12px] text-muted">
+            Si el médico escala tu caso, te llamará a este número — pon uno real para vivir la experiencia completa.
+          </p>
           {errors.phone && <p className="text-[12px] text-danger">{errors.phone}</p>}
         </div>
       </div>

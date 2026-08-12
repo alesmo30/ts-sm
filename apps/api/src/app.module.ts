@@ -9,6 +9,7 @@ import { HealthModule } from './modules/health/health.module';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { LlmModule } from './modules/llm/llm.module';
 import { MetricsModule } from './modules/metrics/metrics.module';
+import { OutreachModule } from './modules/outreach/outreach.module';
 import { PatientsModule } from './modules/patients/patients.module';
 import { SessionsModule } from './modules/sessions/sessions.module';
 import { StatsModule } from './modules/stats/stats.module';
@@ -26,6 +27,7 @@ import { VoiceModule } from './modules/voice/voice.module';
     VoiceModule,
     SessionsModule,
     PatientsModule,
+    OutreachModule,
     KnowledgeModule,
     ConversationModule,
     StatsModule,

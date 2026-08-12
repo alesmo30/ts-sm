@@ -17,6 +17,8 @@ export interface PriorityPatientRow {
   durationSeconds: number;
   caseNotes: string;
   sessionDate: string | null;
+  email: string | null;
+  phone: string | null;
 }
 
 const priorityPatientColumns = {
@@ -31,6 +33,8 @@ const priorityPatientColumns = {
   durationSeconds: priorityPatients.durationSeconds,
   caseNotes: priorityPatients.caseNotes,
   sessionDate: sessions.date,
+  email: sessions.email,
+  phone: sessions.phone,
 };
 
 @Injectable()

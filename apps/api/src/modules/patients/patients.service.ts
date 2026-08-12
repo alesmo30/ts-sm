@@ -16,6 +16,8 @@ function toPriorityPatient(row: PriorityPatientRow): PriorityPatient {
     durationSeconds: row.durationSeconds,
     caseNotes: row.caseNotes,
     sessionDate: row.sessionDate,
+    email: row.email ?? '',
+    phone: row.phone ?? '',
   };
 }
 
