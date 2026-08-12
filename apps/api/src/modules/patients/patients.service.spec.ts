@@ -16,6 +16,7 @@ function makePriorityPatientRow(overrides: Partial<PriorityPatientRow> = {}): Pr
     outcome: 'Escalado a atención humana',
     durationSeconds: 372,
     caseNotes: 'Notas del caso',
+    sessionDate: '2026-08-10',
     ...overrides,
   };
 }
@@ -39,6 +40,16 @@ describe('PatientsService', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].patientName).toBe('Jorge Restrepo');
+    expect(result[0].sessionDate).toBe('2026-08-10');
+  });
+
+  it('deja sessionDate en null cuando la sesión que originó el registro fue borrada', async () => {
+    const { service, repository } = await setup();
+    repository.findAll.mockResolvedValue([makePriorityPatientRow({ sessionId: null, sessionDate: null })]);
+
+    const result = await service.list();
+
+    expect(result[0].sessionDate).toBeNull();
   });
 
   it('lanza NotFoundException si el paciente prioritario no existe', async () => {
