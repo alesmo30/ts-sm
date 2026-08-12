@@ -3,6 +3,8 @@ import { ArrowLeft } from 'lucide-react';
 
 import { formatDuration } from '../../../shared/lib/format';
 
+import { OutreachActions } from './OutreachActions';
+
 interface PriorityDetailProps {
   patient: PriorityPatient;
   onBack: () => void;
@@ -44,6 +46,8 @@ export function PriorityDetail({ patient, onBack }: PriorityDetailProps) {
           <p className="mt-2 text-[13.5px] text-fg">{patient.caseNotes}</p>
         </div>
       </div>
+
+      <OutreachActions patient={patient} />
     </div>
   );
 }

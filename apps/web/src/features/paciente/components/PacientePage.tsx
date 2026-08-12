@@ -34,8 +34,12 @@ export function PacientePage() {
   const [liveKbVersion, setLiveKbVersion] = useState<number | null>(null);
   const kbVersion = liveKbVersion ?? kbState?.version ?? null;
 
-  // La modal de escalada no vuelve a aparecer en la misma sesión una vez
-  // cancelada — el registro ya existe y el médico decide qué hacer con él.
+  // La modal de escalada sí puede volver a aparecer en la misma sesión tras
+  // cancelarse — el paciente puede despedirse o pedir cerrar de nuevo en un
+  // turno posterior, y el timer debe reaparecer cada vez (bug reportado: se
+  // quedaba mostrando el mismo mensaje del asistente en bucle sin volver a
+  // ofrecer la cuenta regresiva). Solo se evita apilar dos timers a la vez
+  // mientras uno ya está pendiente o visible — ver handleEscalationStarted.
   // Reset "durante el render" (patrón oficial de React para resetear estado
   // cuando cambia una prop/dependencia) en vez de un efecto: un useEffect que
   // solo llama setState en cada cambio de sessionId dispara un render extra
@@ -47,13 +51,11 @@ export function PacientePage() {
   // audioPlayback/webSpeech) a que la voz realmente calle antes de montar la
   // cuenta regresiva, para no interrumpir al agente a media frase.
   const [pendingEscalationSeconds, setPendingEscalationSeconds] = useState<number | null>(null);
-  const [escalationAlreadyShown, setEscalationAlreadyShown] = useState(false);
   const [endedByEscalation, setEndedByEscalation] = useState(false);
   const [lastSessionId, setLastSessionId] = useState(sessionId);
 
   if (sessionId !== lastSessionId) {
     setLastSessionId(sessionId);
-    setEscalationAlreadyShown(false);
     setEscalationCountdownSeconds(null);
     setPendingEscalationSeconds(null);
     setEndedByEscalation(false);
@@ -63,8 +65,9 @@ export function PacientePage() {
     _reason: 'red_flag' | 'patient_request' | 'knowledge_gap',
     countdownSeconds: number,
   ): void {
-    if (escalationAlreadyShown) return;
-    setEscalationAlreadyShown(true);
+    // Evita apilar dos timers si ya hay uno pendiente (esperando que la voz
+    // calle) o visible — no bloquea que vuelva a aparecer más adelante.
+    if (pendingEscalationSeconds !== null || escalationCountdownSeconds !== null) return;
     setPendingEscalationSeconds(countdownSeconds);
   }
 

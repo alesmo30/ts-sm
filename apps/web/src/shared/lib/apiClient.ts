@@ -29,7 +29,14 @@ async function request<T>(
   });
 
   if (!response.ok) {
-    throw new Error(`${path} respondió ${response.status}`);
+    // El body de error de Nest trae { message } (ValidationPipe, ServiceUnavailableException,
+    // BadGatewayException, …) — vale como diagnóstico accionable para el usuario.
+    const errorBody: unknown = await response.json().catch(() => null);
+    const message =
+      errorBody && typeof errorBody === 'object' && 'message' in errorBody && typeof errorBody.message === 'string'
+        ? errorBody.message
+        : `${path} respondió ${response.status}`;
+    throw new Error(message);
   }
 
   const body: unknown = await response.json();

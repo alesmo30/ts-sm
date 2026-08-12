@@ -1,3 +1,6 @@
+import { useState } from 'react';
+
+import { SearchInput } from '../../../shared/components/SearchInput';
 import { TableStates } from '../../../shared/components/TableStates';
 import { usePriorityPatients } from '../api/usePriorityPatients';
 
@@ -9,20 +12,34 @@ interface PriorityViewProps {
 }
 
 export function PriorityView({ selectedId, onSelect }: PriorityViewProps) {
+  const [query, setQuery] = useState('');
   const { data: patients, isLoading, isError, refetch } = usePriorityPatients();
-  const isEmpty = !isLoading && !isError && (patients?.length ?? 0) === 0;
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const filtered = patients?.filter(
+    (patient) =>
+      normalizedQuery.length === 0 ||
+      patient.patientName.toLowerCase().includes(normalizedQuery) ||
+      patient.procedure.toLowerCase().includes(normalizedQuery) ||
+      patient.id.toLowerCase().includes(normalizedQuery),
+  );
+  const isEmpty = !isLoading && !isError && (filtered?.length ?? 0) === 0;
 
   return (
     <div className="mt-5">
-      <TableStates
-        isLoading={isLoading}
-        isError={isError}
-        isEmpty={isEmpty}
-        onRetry={() => void refetch()}
-      />
-      {!isLoading && !isError && !isEmpty && patients && (
-        <PriorityTable patients={patients} selectedId={selectedId} onSelect={onSelect} />
-      )}
+      <SearchInput value={query} onChange={setQuery} placeholder="Buscar por paciente, ID o procedimiento…" />
+      <div className="mt-4">
+        <TableStates
+          isLoading={isLoading}
+          isError={isError}
+          isEmpty={isEmpty}
+          query={normalizedQuery || undefined}
+          onRetry={() => void refetch()}
+        />
+        {!isLoading && !isError && !isEmpty && filtered && (
+          <PriorityTable patients={filtered} selectedId={selectedId} onSelect={onSelect} />
+        )}
+      </div>
     </div>
   );
 }
