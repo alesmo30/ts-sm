@@ -99,12 +99,24 @@ export function PacientePage() {
     onTranscript: appendTranscript,
     onKnowledgeUpdated: setLiveKbVersion,
     onEscalationStarted: handleEscalationStarted,
+    onSessionClosed: handleSessionClosedByChat,
   });
 
   async function handleEscalationExpire(): Promise<void> {
     setEscalationCountdownSeconds(null);
     audioPlayback.stop();
     await close();
+    setEndedByEscalation(true);
+  }
+
+  // Mismo desenlace que handleEscalationExpire, pero disparado por texto/voz
+  // del paciente ("cerremos ya") en vez de por el countdown de la modal — la
+  // sesión ya quedó cerrada server-side (ConversationService.closeSession) al
+  // llegar el evento session_closed, así que no se vuelve a llamar close().
+  function handleSessionClosedByChat(): void {
+    setPendingEscalationSeconds(null);
+    setEscalationCountdownSeconds(null);
+    audioPlayback.stop();
     setEndedByEscalation(true);
   }
 
