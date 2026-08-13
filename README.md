@@ -2,7 +2,26 @@
 
 Monorepo del asistente de voz post-operatorio. Tres servicios dockerizados con datos reales: contratos Zod compartidos, persistencia en Postgres y una API REST poblada con la semilla del prototipo (ver `specs/01-andamiaje-y-diseno-congelado.md` y `specs/02-contratos-persistencia-y-api.md`).
 
-## Quick start
+> **Entregables del reto:** los documentos finales de la entrega (informe, diagramas y video) están en la carpeta [`entrega-final/`](entrega-final/).
+
+## Índice
+
+- [Instalación y puesta en marcha](#instalación-y-puesta-en-marcha)
+  - [Opción A — Con Docker (recomendado)](#opción-a--con-docker-recomendado)
+  - [Opción B — Desarrollo local (sin Docker)](#opción-b--desarrollo-local-sin-docker)
+- [Información del proyecto](#información-del-proyecto)
+  - [Endpoints de la API](#endpoints-de-la-api)
+  - [Capa de LLM: cambiar de proveedor](#capa-de-llm-cambiar-de-proveedor)
+  - [Cumplimiento del modelo obligatorio](#cumplimiento-del-modelo-obligatorio)
+  - [Cumplimiento de los requisitos del reto](#cumplimiento-de-los-requisitos-del-reto)
+  - [Métricas](#métricas)
+  - [Base de conocimiento (RAG)](#base-de-conocimiento-rag)
+  - [Estructura](#estructura)
+  - [Licencia](#licencia)
+
+## Instalación y puesta en marcha
+
+### Opción A — Con Docker (recomendado)
 
 Requisitos: Docker + Docker Compose v2.
 
@@ -12,6 +31,27 @@ docker compose up
 ```
 
 Los tres servicios (`db`, `api`, `web`) levantan con healthcheck y arrancan en orden de dependencia. Primer arranque puede tardar unos minutos (descarga de imágenes + build de las dos imágenes propias).
+
+### Credenciales
+
+El repositorio es público, así que `.env.example` no trae ninguna clave. Las credenciales reales se entregan por dos canales separados del repositorio — el punto de envío del reto y el punto de examen/evaluación — nunca dentro de este repositorio público. Pegar ese bloque dentro del `.env` recién copiado y levantar. No hay modelos ni pesos que descargar — todo lo externo (LLM, embeddings, STT/TTS) son llamadas HTTP.
+
+**Sin ninguna clave el stack arranca igual**, en modo degradado: los tres contenedores llegan a `healthy` y la interfaz es navegable. Cada módulo valida su propia configuración y se apaga solo, sin tumbar el arranque:
+
+| Área | Sin credencial | Con credencial |
+|---|---|---|
+| LLM | `LLM_PROVIDER=mock`: cuatro respuestas fijas rotativas | respuestas reales del modelo |
+| Voz | `VOICE_PROVIDER=off`: micrófono deshabilitado, modo texto | STT/TTS vía Deepgram |
+| Backstop de escalada | sin `GEMINI_API_KEY` queda desactivado; la escalada sigue por la marca del LLM y por las reglas determinísticas de triage | similitud por embeddings activa (`RedFlagDetectorService`) |
+| Filtro de relevancia de citas | sin `GEMINI_API_KEY` se muestran las citas del retrieval léxico sin filtrar | filtro por similitud activo (`CitationRelevanceService`) |
+| Contacto al paciente | `POST /outreach/call` y `/outreach/email` responden `503` nombrando la variable que falta | llamada y correo reales |
+
+Qué quedó activo, en un comando:
+
+```bash
+curl localhost:3000/llm/health
+# {"provider":"openai","model":"llama-3.3-70b-versatile","ready":true}
+```
 
 El contenedor `api` aplica las migraciones y siembra los datos del prototipo (5 sesiones, 3 pacientes prioritarios, 5 referencias) automáticamente al arrancar — no hace falta ningún comando manual, ni siquiera en el primer `docker compose up` contra un volumen vacío.
 
@@ -29,32 +69,13 @@ curl localhost:3000/health
 # {"status":"ok","db":"connected"}
 ```
 
-### Endpoints
-
-| Método | Ruta | Descripción |
-|---|---|---|
-| `GET` | `/health` | estado de la API y de la conexión a la db |
-| `GET` | `/sessions?q=` | lista de sesiones, `q` filtra por paciente, código o procedimiento |
-| `GET` | `/sessions/:id` | detalle de una sesión con su hilo de turnos |
-| `POST` | `/sessions` | crea una sesión (`patientName`, `procedure`) |
-| `POST` | `/sessions/:id/turns` | agrega un turno al hilo de una sesión |
-| `PATCH` | `/sessions/:id` | actualiza `status` y/o `summary` |
-| `GET` | `/patients/priority` | pacientes con atención personalizada |
-| `GET` | `/patients/priority/:id` | detalle de un paciente prioritario |
-| `GET` | `/knowledge/references` | referencias activas de la base de conocimiento |
-| `GET` | `/knowledge/state` | versión vigente de la base de conocimiento |
-| `POST` | `/llm/complete` | llamada de verificación al proveedor de LLM activo |
-| `GET` | `/llm/health` | proveedor y modelo activos (`provider`, `model`, `ready`) |
-| `GET` | `/llm/metrics` | acumulado en memoria de tokens/costo/latencia por llamada |
-| `GET` | `/metrics` | métricas de rúbrica por turno y por sesión — ver [Métricas](#métricas) |
-
 Para bajar todo (incluyendo volúmenes de datos):
 
 ```bash
 docker compose down -v
 ```
 
-## Desarrollo local (sin Docker)
+### Opción B — Desarrollo local (sin Docker)
 
 Requiere Node ≥22 y pnpm 10 (`npm i -g pnpm@10`; `corepack` no viene con Node v26).
 
@@ -76,7 +97,37 @@ pnpm --filter api db:migrate
 pnpm seed                    # idempotente — correrlo dos veces no duplica datos
 ```
 
-## Capa de LLM: cambiar de proveedor
+## Información del proyecto
+
+### Endpoints de la API
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/health` | estado de la API y de la conexión a la db |
+| `GET` | `/sessions?q=` | lista de sesiones, `q` filtra por paciente, código o procedimiento |
+| `GET` | `/sessions/:id` | detalle de una sesión con su hilo de turnos |
+| `POST` | `/sessions` | crea una sesión (`patientName`, `procedure`) |
+| `POST` | `/sessions/:id/turns` | agrega un turno al hilo de una sesión |
+| `PATCH` | `/sessions/:id` | actualiza `status` y/o `summary` |
+| `POST` | `/sessions/:id/close` | cierra la sesión y genera el resumen estructurado |
+| `GET` | `/patients/priority` | pacientes con atención personalizada |
+| `GET` | `/patients/priority/:id` | detalle de un paciente prioritario |
+| `GET` | `/knowledge/references` | referencias de la base de conocimiento (`?origin=`, `?includeInactive=true`) |
+| `POST` | `/knowledge/references` | sube un documento (multipart `file`) o texto plano — devuelve `202` con el `IngestJob` |
+| `PATCH` | `/knowledge/references/:id` | activa o desactiva una referencia (soft-delete: el agente "olvida") |
+| `GET` | `/knowledge/jobs` · `/knowledge/jobs/:id` | estado de los trabajos de ingesta |
+| `GET` | `/knowledge/state` | versión vigente de la base de conocimiento (`kbVersion`) |
+| `POST` | `/outreach/draft` | genera con el LLM el guion de llamada y el borrador de correo |
+| `POST` | `/outreach/email` · `/outreach/call` | envía el correo (Resend) o marca la llamada (Twilio) — `503` sin credenciales |
+| `GET` | `/voice/config` | proveedor de voz activo y modelos de STT/TTS |
+| `GET` | `/voice/metrics` | latencia acumulada de STT y TTS |
+| `GET` | `/stats/counts` | conteos agregados para el panel médico |
+| `POST` | `/llm/complete` | llamada de verificación al proveedor de LLM activo |
+| `GET` | `/llm/health` | proveedor y modelo activos (`provider`, `model`, `ready`) |
+| `GET` | `/llm/metrics` | acumulado en memoria de tokens/costo/latencia por llamada |
+| `GET` | `/metrics` | métricas de rúbrica por turno y por sesión — ver [Métricas](#métricas) |
+
+### Capa de LLM: cambiar de proveedor
 
 Todo acceso al modelo pasa por `LlmPort` (`apps/api/src/modules/llm/llm.port.ts`) — ver `specs/04-capa-agnostica-llm.md`. El proveedor se resuelve una sola vez en el bootstrap de Nest a partir de cinco variables de entorno; cambiarlo es editar `.env` y reiniciar, sin tocar ningún archivo `.ts`.
 
@@ -101,15 +152,62 @@ OPENAI_BASE_URL=https://api.groq.com/openai/v1
 
 El driver `openai` no sabe que está hablando con Groq; solo usa el `baseURL` configurado. El mismo mecanismo sirve para cualquier gateway compatible con la API de `chat.completions`.
 
-**Advertencia (R0.1 de `REGLAS.md`):** el `.env` que se entrega, el README y el video de demo deben apuntar al modelo obligatorio anunciado el 7 de agosto de 2026 — nunca a otro proveedor como fallback ni "solo para probar". Verificar con `GET /llm/health` antes de grabar cualquier entregable.
+### Cumplimiento del modelo obligatorio
 
-## Métricas
+**El 100% de la generación de lenguaje de este sistema se ejecuta con `llama-3.3-70b-versatile`, de la familia Meta Llama servida vía Groq** — una de las cuatro familias permitidas por `docs/stack-tecnico.md` §1 del kit oficial (Gemini Flash, Meta Llama vía Groq, Llama 3.x local, Phi Mini local). La compuerta G3 del reglamento descalifica cualquier modelo generativo fuera de esas familias.
+
+Cómo se hace verificable, no solo declarable:
+
+| Mecanismo | Dónde |
+|---|---|
+| Un único punto de acceso al modelo. Ningún módulo importa un SDK de LLM; todo pasa por `LlmPort.complete()` | `apps/api/src/modules/llm/llm.port.ts` |
+| Un solo driver activo por configuración, resuelto una vez en el bootstrap de Nest | `LLM_PROVIDER` / `LLM_MODEL` |
+| Cada llamada registra el `model` efectivamente usado, con tokens, costo y latencia | `GET /llm/metrics`, `GET /metrics` |
+| El proveedor y modelo activos son consultables en caliente | `GET /llm/health` |
+
+```bash
+curl localhost:3000/llm/health
+# {"provider":"openai","model":"llama-3.3-70b-versatile","ready":true}
+```
+
+El driver se llama `openai` porque implementa el protocolo `chat.completions`, no porque hable con OpenAI: `OPENAI_BASE_URL` apunta a `https://api.groq.com/openai/v1` y el modelo servido es Llama. Ninguna clave de OpenAI interviene.
+
+**Componentes no generativos** (fuera del alcance de la regla, por ser ASR/encoders y no LLMs):
+
+| Componente | Servicio | Naturaleza |
+|---|---|---|
+| STT | Deepgram Nova-3 | reconocimiento de voz |
+| TTS | Deepgram Aura-2 (es) | síntesis de voz |
+| Embeddings | `gemini-embedding-001` | encoder — produce vectores, no texto |
+
+Los embeddings de Gemini se usan exclusivamente como encoder para el backstop de escalada y el filtro de relevancia de citas. **No hay un segundo modelo generativo en ninguna parte del sistema**, ni siquiera para tareas auxiliares como normalizar modismos: esa normalización es un diccionario determinístico (`apps/api/src/modules/escalation/colloquial-glossary.ts`), precisamente para no introducir una segunda generación de lenguaje.
+
+### Cumplimiento de los requisitos del reto
+
+Cada requisito funcional, con dónde vive y cómo verificarlo sin leer código:
+
+| # | Requisito | Implementación | Cómo se comprueba |
+|---|---|---|---|
+| 1 | Conversación de voz adaptable, no un árbol rígido | `modules/conversation` + `modules/voice` (Deepgram Nova-3 / Aura-2) — `specs/05`, `06`, `10` | Vista paciente en http://localhost:5173 con micrófono; el triage reformula según lo que responda el paciente |
+| 2 | RAG clínico sobre el corpus entregado | `modules/knowledge`, retrieval híbrido léxico + vectorial con reformulación de consulta — `specs/07`, `09` | Preguntar por cuidados post-operatorios y ver la respuesta fundamentada |
+| 3 | Consola de conocimiento vivo (subir y eliminar en caliente) | `POST`/`PATCH /knowledge/references`, vista **Conocimiento** del panel médico — `specs/08` | Secuencia preguntar → subir → cambia → desactivar → vuelve, sin reiniciar nada |
+| 4 | Trazabilidad de cada respuesta clínica | Citas con `doc_id`, `chunk_id`, `kbVersion` en cada turno — `specs/07` | Cada burbuja del agente muestra sus fuentes; `GET /knowledge/state` da la versión vigente |
+| 5 | Lógica de decisión para alertar a un humano | Triage determinístico (`triage.rules.ts`) + backstop por embeddings (`RedFlagDetectorService`) — `specs/08`, `10` | Mensaje con bandera roja dispara la escalada y el modal de cuenta regresiva |
+| 6 | Resumen estructurado por llamada | `POST /sessions/:id/close` — `specs/10` | Cerrar una sesión desde la vista paciente y ver el resumen generado |
+| 7 | Latencia P50/P95, tokens y costo por llamada | `modules/metrics`, emitidas automáticamente por turno — `specs/13`, `14` | `GET /metrics` — ver [Métricas](#métricas) |
+
+Dos precisiones sobre el alcance, para que no se lean como más de lo que son:
+
+- **Las reglas de triage solo pueden subir la severidad, nunca bajarla.** El LLM no puede desescalar una alerta disparada por regla determinística. Si el paciente pide hablar con un humano, se escala sin negociar.
+- **El contacto real al paciente (Twilio/Resend) es un extra, no un requisito.** El reto declara explícitamente fuera de alcance la telefonía real; se incluyó porque cierra el ciclo de la alerta clínica en la demo. El sistema completo funciona sin esas credenciales — ver [Credenciales](#credenciales).
+
+### Métricas
 
 Ver `specs/13-metricas-de-rubrica.md`. `GET /metrics` acumula en memoria (sin persistencia — muere con el proceso, igual que `/llm/metrics`) latencia, tokens, invocaciones al modelo, consultas al RAG y costo, por turno y agregado por sesión.
 
 **Modelo declarado:** `llama-3.3-70b-versatile`, familia Meta Llama, servido vía Groq (gateway compatible con la API de OpenAI — ver [Capa de LLM](#capa-de-llm-cambiar-de-proveedor)). Elegido por estar dentro de las familias permitidas por el kit del reto (G3) y por su latencia de inferencia, el factor más ajustado del presupuesto de una conversación de voz con un turno completo (STT → LLM → TTS) por debajo de los pocos segundos que tolera una llamada en vivo.
 
-### Los dos tramos de latencia
+#### Los dos tramos de latencia
 
 | Tramo | Qué mide | Qué incluye |
 |---|---|---|
@@ -118,7 +216,7 @@ Ver `specs/13-metricas-de-rubrica.md`. `GET /metrics` acumula en memoria (sin pe
 
 **Esta corrida no ejerció `endOfSpeechLatencyMs`.** Las dos conversaciones de la corrida real (abajo) se condujeron con `user_message` directo (texto con `isVoice:true`), no con el flujo completo `audio_start` → frames de audio → `audio_end` — reproducir ese flujo exige audio real capturado por micrófono, que un script de backend no puede generar sin grabar o sintetizar voz de antemano. El mecanismo de este tramo (marca tomada en `ConversationGateway.handleAudioEnd`, consumida por el siguiente `user_message` del mismo socket) está cubierto por test automatizado en `apps/api/src/modules/conversation/conversation.gateway.spec.ts` y `apps/api/src/modules/metrics/turn-metrics.spec.ts`, no por esta corrida. La demo en vivo (app web con micrófono real) sí lo ejerce.
 
-### Corrida real — 2026-08-11
+#### Corrida real — 2026-08-11
 
 Dos conversaciones completas contra el modelo real (`llama-3.3-70b-versatile` vía Groq), TTS real (Deepgram Aura-2) y embeddings reales (Gemini) — sin mocks. `docker compose up --build` sobre la imagen con este spec, corpus del reto ya sembrado.
 
@@ -224,7 +322,7 @@ Agregado de las dos sesiones (`overall`, 11 turnos):
 
 Reproducir: `docker compose up --build`, luego crear una sesión (`POST /sessions`) y conducir turnos por el WebSocket `/ws` (ver `apps/web/src/features/paciente/api/useConversation.ts` para el formato exacto de los eventos), y leer `GET /metrics`.
 
-### Latencia por etapa (SPEC 14)
+#### Latencia por etapa (SPEC 14)
 
 `responseLatencyMs` dice cuánto tardó el turno completo, pero no dónde se fue ese tiempo. `GET /metrics` reparte los milisegundos por etapa externa en `overall.stageLatency` y `bySession[].stageLatency` (forma `LatencyStats`, igual que las demás), y en `stageMs` por turno individual dentro de `recentTurns`. Ver `specs/14-latencia-por-etapa.md`.
 
@@ -240,7 +338,7 @@ Reproducir: `docker compose up --build`, luego crear una sesión (`POST /session
 
 **Esta corrida no ejerció `stt`.** Los cuatro turnos se condujeron por WebSocket (`user_message` con `isVoice:false`), sin pasar por `audio_start`/frames de audio/`audio_end` — mismo motivo que `endOfSpeechLatencyMs` arriba. `tts` sí se ejerció: la respuesta se sintetiza siempre, la haya pedido el paciente en voz o no. El mecanismo de `stt` está cubierto por test automatizado (`voice.metrics.spec.ts`, `turn-metrics.spec.ts`); la demo en vivo con micrófono real lo ejerce.
 
-#### Corrida real — 2026-08-12
+##### Corrida real — 2026-08-12
 
 Una sesión, 4 turnos, contra el modelo real (`llama-3.3-70b-versatile` vía Groq), TTS real (Deepgram Aura-2) y embeddings reales (Gemini) — sin mocks. `docker compose up --build`, conversación conducida por `/ws`. Este turno no disparó el respaldo de multi-query de SPEC 09 (`ragQueries: 1` por turno) — a diferencia de la corrida de SPEC 13 arriba, que sí lo hizo en una de sus sesiones.
 
@@ -290,7 +388,7 @@ Una sesión, 4 turnos, contra el modelo real (`llama-3.3-70b-versatile` vía Gro
 
 </details>
 
-## Base de conocimiento (RAG)
+### Base de conocimiento (RAG)
 
 El corpus clínico (107 PDFs del kit del reto, español e inglés mezclados) no se commitea — ver `specs/07-rag-y-citas-trazables.md`. Flujo completo, de cero a base sembrada:
 
@@ -303,7 +401,7 @@ pnpm --filter api kb:dump      # vuelca references + reference_chunks a database
 
 `kb-corpus.json.gz` y `database/kb-cache/` van commiteados: `docker compose up` los carga vía `seed.ts`, sin correr ingesta ni traducción en el arranque. `KNOWLEDGE_LOCAL_DIR` (`.env.example`) apunta a `dataset-reto/dataset/textos`, solo lo usan los scripts `kb:*`, nunca el runtime de la API.
 
-## Estructura
+### Estructura
 
 ```
 apps/api/       NestJS por capas — controller → service → repository → drizzle
@@ -314,6 +412,6 @@ docker/db/      init.sql — habilita la extensión pgvector
 
 Detalle completo de la arquitectura y las reglas de capas en `specs/01-andamiaje-y-diseno-congelado.md` y el contrato visual en `DESIGN.md`.
 
-## Licencia
+### Licencia
 
 MIT — ver `LICENSE`.
