@@ -2,7 +2,7 @@
 
 Monorepo del asistente de voz post-operatorio. Tres servicios dockerizados con datos reales: contratos Zod compartidos, persistencia en Postgres y una API REST poblada con la semilla del prototipo (ver `specs/01-andamiaje-y-diseno-congelado.md` y `specs/02-contratos-persistencia-y-api.md`).
 
-> **Entregables del reto:** los documentos finales de la entrega (informe, diagramas y credenciales de despliegue) están en la carpeta [`entrega-final/`](entrega-final/).
+> **Entregables del reto:** los documentos finales de la entrega (informe, diagramas y video) están en la carpeta [`entrega-final/`](entrega-final/).
 
 ## Índice
 
@@ -34,9 +34,7 @@ Los tres servicios (`db`, `api`, `web`) levantan con healthcheck y arrancan en o
 
 ### Credenciales
 
-El repositorio es público, así que `.env.example` no trae ninguna clave. El `.env` con las credenciales reales se entrega por el canal privado de la evaluación: pegar ese bloque dentro del `.env` recién copiado y levantar. No hay modelos ni pesos que descargar — todo lo externo (LLM, embeddings, STT/TTS) son llamadas HTTP.
-
-Como atajo adicional para acelerar el despliegue durante el sprint, también empaqueté las credenciales reales en `docs/credenciales-despliegue.pdf`, cifrado con mi número de cédula como contraseña (no lo escribo aquí — pídemelo directamente si necesitas abrirlo). Esto es un antipatrón de manejo de secretos que asumí conscientemente por la restricción de tiempo del reto, no una práctica recomendada para producción; el propio PDF documenta esa justificación y sus mitigaciones. Recuerden poner el contenido de las keys en un archivo .env en la raiz del proyecto
+El repositorio es público, así que `.env.example` no trae ninguna clave. Las credenciales reales se entregan por dos canales separados del repositorio — el punto de envío del reto y el punto de examen/evaluación — nunca dentro de este repositorio público. Pegar ese bloque dentro del `.env` recién copiado y levantar. No hay modelos ni pesos que descargar — todo lo externo (LLM, embeddings, STT/TTS) son llamadas HTTP.
 
 **Sin ninguna clave el stack arranca igual**, en modo degradado: los tres contenedores llegan a `healthy` y la interfaz es navegable. Cada módulo valida su propia configuración y se apaga solo, sin tumbar el arranque:
 
